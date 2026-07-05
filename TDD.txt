@@ -1,0 +1,1203 @@
+================================================================================
+TECHNICAL DESIGN DOCUMENT
+Ms. Pac-Man (TypeScript + HTML5 Canvas)
+================================================================================
+
+Version:   1.0
+Status:    Draft
+Target:    Browser-playable desktop build
+Stack:     TypeScript, Vite, HTML5 Canvas 2D, Web Audio API, Vitest
+
+
+--------------------------------------------------------------------------------
+1. PURPOSE
+--------------------------------------------------------------------------------
+
+This document describes the technical plan for building the Ms. Pac-Man game
+specified in GDD.txt. It focuses on a faithful arcade-style implementation with
+tile-locked movement, four distinct ghosts, scatter/chase/frightened modes,
+moving bonus fruit, rotating mazes, score chasing, high-score persistence, and
+arcade-style presentation.
+
+The implementation should be small, deterministic where practical, easy to tune,
+and testable at the gameplay-logic layer. Rendering and audio remain thin
+presentation layers over a clear simulation model.
+
+
+--------------------------------------------------------------------------------
+2. TECHNOLOGY STACK
+--------------------------------------------------------------------------------
+
+Language:
+  - TypeScript.
+  - Strict mode enabled.
+  - ES modules.
+
+Runtime / Build:
+  - Vite for local development and production bundling.
+  - Browser target: modern Chromium, Firefox, Edge, Safari.
+
+Rendering:
+  - HTML5 Canvas 2D.
+  - Logical arcade resolution scaled to fit the browser window.
+  - Pixel-art-friendly nearest-neighbor scaling.
+
+Audio:
+  - Web Audio API.
+  - Procedural tones for siren, pellet, death, and bonus sounds.
+  - Optional support for sample-based audio assets later.
+
+Testing:
+  - Vitest for pure game logic.
+  - Unit tests for movement, maze parsing, ghost targeting, scoring, timers,
+    and level progression.
+
+Persistence:
+  - localStorage for high scores and options.
+
+Non-goals:
+  - No heavy game engine.
+  - No online services required for the initial build.
+  - No physics engine; all movement is tile/grid based.
+
+
+--------------------------------------------------------------------------------
+3. PROJECT STRUCTURE
+--------------------------------------------------------------------------------
+
+Proposed file tree:
+
+  package.json
+  index.html
+  vite.config.ts
+  tsconfig.json
+
+  public/
+    assets/
+      sprites/
+        ms-pacman.png
+        ghosts.png
+        fruit.png
+        hud.png
+      audio/
+        README.txt
+
+  src/
+    main.ts
+    app/
+      GameApp.ts
+      GameLoop.ts
+      Input.ts
+      StateMachine.ts
+    config/
+      constants.ts
+      levelTables.ts
+      scoring.ts
+      tuning.ts
+    core/
+      Direction.ts
+      Geometry.ts
+      Random.ts
+      Timer.ts
+      Types.ts
+    maze/
+      Maze.ts
+      MazeParser.ts
+      MazeGraph.ts
+      MazeRepository.ts
+      mazeA.ts
+      mazeB.ts
+      mazeC.ts
+      mazeD.ts
+    entities/
+      Entity.ts
+      MsPacman.ts
+      Ghost.ts
+      Fruit.ts
+    systems/
+      MovementSystem.ts
+      CollisionSystem.ts
+      PelletSystem.ts
+      GhostAISystem.ts
+      FrightenedSystem.ts
+      FruitSystem.ts
+      ScoreSystem.ts
+      LevelSystem.ts
+    render/
+      Renderer.ts
+      Camera.ts
+      SpriteSheet.ts
+      MazeRenderer.ts
+      EntityRenderer.ts
+      HudRenderer.ts
+      EffectsRenderer.ts
+    audio/
+      AudioManager.ts
+      SoundBank.ts
+      ProceduralSfx.ts
+    storage/
+      HighScoreStore.ts
+      OptionsStore.ts
+    screens/
+      TitleScreen.ts
+      ReadyScreen.ts
+      PauseOverlay.ts
+      GameOverScreen.ts
+      HighScoreScreen.ts
+    tests/
+      maze.test.ts
+      movement.test.ts
+      ghostTargets.test.ts
+      scoring.test.ts
+      levelTables.test.ts
+
+
+--------------------------------------------------------------------------------
+4. APPLICATION ARCHITECTURE
+--------------------------------------------------------------------------------
+
+The game is a fixed-timestep simulation with a canvas renderer. Game state is
+updated at a stable rate independent of display refresh, then rendered using the
+latest simulated positions.
+
+Core loop:
+
+  1. Browser calls requestAnimationFrame.
+  2. GameLoop accumulates elapsed time.
+  3. While accumulator >= fixed step:
+       - Read buffered input.
+       - Update active game state.
+       - Update systems in a deterministic order.
+       - Decrease accumulator.
+  4. Renderer draws current frame with interpolation if needed.
+
+Recommended timing:
+
+  - Simulation step: 1 / 60 seconds.
+  - Maximum accumulated frame catch-up: 250 ms.
+  - Pause halts simulation updates but allows UI input.
+
+System update order while playing:
+
+  1. InputSystem / Input buffer
+  2. Level timers and ghost mode timers
+  3. Player movement
+  4. Ghost AI target selection
+  5. Ghost movement
+  6. Fruit movement / spawn timers
+  7. Pellet and power-pellet collection
+  8. Frightened state transitions
+  9. Collisions
+  10. Score and extra-life events
+  11. Level-complete checks
+  12. Audio event dispatch
+
+Data flow:
+
+  Input -> StateMachine -> Systems -> GameState -> Renderer
+                              |
+                              v
+                       Audio event queue
+
+
+--------------------------------------------------------------------------------
+5. GAME STATE MACHINE
+--------------------------------------------------------------------------------
+
+Top-level states:
+
+  BOOT
+    Initializes canvas, loads assets, reads high scores/options.
+
+  TITLE
+    Shows title, high score, and start prompt. Optional attract mode later.
+
+  READY
+    Places entities and shows READY! before a level or life restart.
+
+  PLAYING
+    Runs the active simulation.
+
+  PAUSED
+    Freezes simulation and shows pause overlay.
+
+  LIFE_LOST
+    Plays death animation and decides whether to reset or enter GAME_OVER.
+
+  LEVEL_CLEAR
+    Flashes maze, advances level, chooses next maze, then enters READY.
+
+  GAME_OVER
+    Shows final score and handles high-score entry.
+
+  HIGH_SCORE
+    Shows local high-score table.
+
+Transitions:
+
+  BOOT -> TITLE
+  TITLE -> READY
+  READY -> PLAYING
+  PLAYING -> PAUSED -> PLAYING
+  PLAYING -> LIFE_LOST
+  LIFE_LOST -> READY
+  LIFE_LOST -> GAME_OVER
+  PLAYING -> LEVEL_CLEAR
+  LEVEL_CLEAR -> READY
+  GAME_OVER -> HIGH_SCORE
+  HIGH_SCORE -> TITLE
+
+
+--------------------------------------------------------------------------------
+6. CORE TYPES
+--------------------------------------------------------------------------------
+
+Important shared types:
+
+  type TileCoord = {
+    x: number;
+    y: number;
+  };
+
+  type PixelCoord = {
+    x: number;
+    y: number;
+  };
+
+  enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+    None
+  }
+
+  enum TileType {
+    Empty,
+    Wall,
+    Pellet,
+    PowerPellet,
+    GhostHouse,
+    Door,
+    Tunnel
+  }
+
+  enum GameMode {
+    Scatter,
+    Chase,
+    Frightened
+  }
+
+  enum GhostState {
+    InHouse,
+    LeavingHouse,
+    Normal,
+    Frightened,
+    EatenEyes,
+    ReturningHome
+  }
+
+  type Entity = {
+    id: string;
+    tile: TileCoord;
+    pixel: PixelCoord;
+    direction: Direction;
+    nextDirection: Direction;
+    speedPxPerSecond: number;
+  };
+
+
+--------------------------------------------------------------------------------
+7. COORDINATE SYSTEM
+--------------------------------------------------------------------------------
+
+The game uses a logical tile grid and a logical pixel canvas.
+
+Tile grid:
+  - Width:  28 tiles.
+  - Height: 31 tiles.
+  - Tile size: 8 logical pixels.
+
+Logical playfield:
+  - Width:  224 pixels.
+  - Height: 248 pixels.
+
+Recommended full logical canvas:
+  - Width:  224 pixels.
+  - Height: 288 pixels.
+  - Extra vertical space supports HUD and fruit/life row.
+
+Coordinate conversion:
+
+  tileToPixel(tile):
+    x = tile.x * TILE_SIZE + TILE_SIZE / 2
+    y = tile.y * TILE_SIZE + TILE_SIZE / 2
+
+  pixelToTile(pixel):
+    x = floor(pixel.x / TILE_SIZE)
+    y = floor(pixel.y / TILE_SIZE)
+
+Movement remains grid-locked. Entities move along corridors and may only turn
+when centered on a tile or within a small turn-window tolerance.
+
+Warp tunnel:
+  - If entity moves past x < -halfTile, wrap to right edge.
+  - If entity moves past x > playfieldWidth + halfTile, wrap to left edge.
+  - Ghost speed is reduced while inside tunnel tiles.
+
+
+--------------------------------------------------------------------------------
+8. MAZE DATA FORMAT
+--------------------------------------------------------------------------------
+
+Each maze is stored as ASCII data plus metadata. The parser converts the ASCII
+into walls, pellets, power pellets, tunnel tiles, ghost-house tiles, and spawn
+points.
+
+Example symbols:
+
+  #  Wall
+  .  Pellet
+  o  Power Pellet
+     Empty path
+  T  Tunnel path
+  H  Ghost house interior
+  D  Ghost house door
+  P  Ms. Pac-Man spawn
+  B  Blinky spawn
+  I  Inky spawn
+  K  Pinky spawn
+  S  Sue spawn
+  F  Fruit entry / path marker
+
+Maze definition:
+
+  type MazeDefinition = {
+    id: 'A' | 'B' | 'C' | 'D';
+    displayName: string;
+    wallColor: string;
+    rows: string[];
+    playerSpawn: TileCoord;
+    ghostSpawns: Record<GhostId, TileCoord>;
+    scatterTargets: Record<GhostId, TileCoord>;
+    tunnelRows: number[];
+    fruitPathHints: TileCoord[];
+  };
+
+Parser responsibilities:
+
+  - Validate exactly 31 rows.
+  - Validate exactly 28 columns per row.
+  - Validate required spawn markers.
+  - Convert pellet markers into PelletState entries.
+  - Build walkability lookup.
+  - Build node graph for intersections and path decisions.
+  - Count total pellets required for level clear.
+
+
+--------------------------------------------------------------------------------
+9. MAZE GRAPH
+--------------------------------------------------------------------------------
+
+Ghosts and fruit need fast movement decisions. Build a graph from passable maze
+tiles.
+
+Node definition:
+
+  type MazeNode = {
+    tile: TileCoord;
+    exits: Direction[];
+  };
+
+A tile is a graph node when:
+  - It is passable, and
+  - It has 3 or more exits, or
+  - It is a corner, or
+  - It is a spawn/house/tunnel boundary tile.
+
+At runtime, ghosts do not need full A* pathfinding every frame. They choose a
+direction at intersections by evaluating legal exits against the current target
+tile. The preferred exit is the one whose next tile has the shortest squared
+distance to the target.
+
+Ghost movement rules:
+  - A ghost may not reverse direction during normal scatter/chase movement
+    unless a mode switch explicitly forces a reversal.
+  - Frightened ghosts may choose a random legal direction at intersections.
+  - Eaten eyes target the ghost-house return tile and move faster.
+
+
+--------------------------------------------------------------------------------
+10. PLAYER MOVEMENT
+--------------------------------------------------------------------------------
+
+Ms. Pac-Man movement is responsive and buffered.
+
+Rules:
+
+  - Input stores current desired direction as nextDirection.
+  - If nextDirection becomes legal at the current tile center, turn into it.
+  - If current direction remains legal, keep moving.
+  - If blocked, stop centered before the wall.
+  - If the player presses the opposite direction, reverse immediately when
+    movement alignment allows.
+
+Cornering:
+
+  - Allow turns slightly before exact tile center using a configurable
+    cornering window, for example 2 logical pixels.
+  - Snap the perpendicular axis to tile center on a successful turn.
+
+Player speed:
+
+  - Pulled from levelTables.ts.
+  - Speed can differ for normal movement, pellet-eating movement, and
+    frightened levels if needed.
+
+
+--------------------------------------------------------------------------------
+11. GHOST AI
+--------------------------------------------------------------------------------
+
+Each ghost shares the same movement engine but has a unique target function.
+
+Ghost IDs:
+
+  - Blinky: red
+  - Pinky: pink
+  - Inky: cyan
+  - Sue: orange
+
+Global modes:
+
+  - Scatter: ghosts target their assigned corners.
+  - Chase: ghosts use personality target functions.
+  - Frightened: ghosts turn blue, slow down, and choose random legal exits.
+
+Mode schedule:
+
+  Use a level-specific schedule of scatter/chase durations. Classic-style
+  defaults:
+
+    Level 1:
+      Scatter 7s, Chase 20s,
+      Scatter 7s, Chase 20s,
+      Scatter 5s, Chase 20s,
+      Scatter 5s, Chase infinite
+
+    Higher levels:
+      Reduce later scatter durations and lengthen chase pressure.
+
+Mode switch behavior:
+
+  - Scatter <-> Chase forces all normal ghosts to reverse direction.
+  - Entering Frightened also forces reversal.
+  - Leaving Frightened resumes the underlying scatter/chase timer mode.
+
+Target functions:
+
+  Blinky:
+    - Chase target = Ms. Pac-Man's current tile.
+    - Cruise Elroy activates when remaining pellets drop below thresholds.
+
+  Pinky:
+    - Chase target = 4 tiles ahead of Ms. Pac-Man's current direction.
+    - Clamp target to maze bounds or allow off-grid target for arcade flavor,
+      then distance-evaluate normally.
+
+  Inky:
+    - Look 2 tiles ahead of Ms. Pac-Man.
+    - Vector from Blinky to that tile is doubled.
+    - Target = Blinky + 2 * vector.
+
+  Sue:
+    - If distance to Ms. Pac-Man is greater than 8 tiles, chase current player
+      tile.
+    - If distance is 8 tiles or less, target Sue's scatter corner.
+
+Frightened random:
+
+  - Use a seeded pseudo-random generator per level attempt.
+  - At intersections, choose one legal non-reverse direction at random.
+  - If only reverse is legal, allow reverse.
+
+Ghost house:
+
+  - Ghosts start in or near the ghost house depending on level start.
+  - Release conditions can use pellet counts and/or timers.
+  - Eaten ghosts become eyes, return to the house entrance, enter the house,
+    then respawn and exit.
+
+
+--------------------------------------------------------------------------------
+12. SPEED AND DIFFICULTY TABLES
+--------------------------------------------------------------------------------
+
+Speed tables live in config/levelTables.ts. Values are expressed as multipliers
+or pixels per second against TILE_SIZE.
+
+Example table shape:
+
+  type LevelTuning = {
+    levelRange: [number, number];
+    playerSpeed: number;
+    playerPelletSpeed: number;
+    ghostSpeed: number;
+    ghostTunnelSpeed: number;
+    frightenedGhostSpeed: number;
+    eyesSpeed: number;
+    frightenedDurationSeconds: number;
+    frightenedFlashes: number;
+    blinkyElroy1Pellets: number;
+    blinkyElroy2Pellets: number;
+    blinkyElroy1Speed: number;
+    blinkyElroy2Speed: number;
+  };
+
+Initial tuning targets:
+
+  Level 1:
+    Player normal:       80% base
+    Player eating:       71% base
+    Ghost normal:        75% base
+    Ghost tunnel:        40% base
+    Frightened ghost:    50% base
+    Frightened duration: 6s
+
+  Mid levels:
+    Increase ghost speed.
+    Decrease frightened duration.
+
+  High levels:
+    Frightened duration may be 0s.
+    Ghosts no longer turn blue, but Power Pellets still score 50 points.
+
+
+--------------------------------------------------------------------------------
+13. PELLETS, POWER PELLETS, AND LEVEL CLEAR
+--------------------------------------------------------------------------------
+
+Pellet state:
+
+  type PelletState = {
+    tile: TileCoord;
+    kind: 'pellet' | 'powerPellet';
+    eaten: boolean;
+  };
+
+Pellet collection:
+
+  - When Ms. Pac-Man reaches a pellet tile, mark it eaten once.
+  - Small pellet: +10 points.
+  - Power Pellet: +50 points and trigger frightened state.
+  - Eating a pellet may briefly reduce player movement speed, based on tuning.
+
+Level clear:
+
+  - Count remaining uneaten pellets and power pellets.
+  - When remaining count reaches 0:
+      - Enter LEVEL_CLEAR.
+      - Play maze flash animation.
+      - Increment level number.
+      - Select next maze based on rotation table.
+      - Reset entities and pellets for the new maze.
+
+
+--------------------------------------------------------------------------------
+14. FRIGHTENED SYSTEM
+--------------------------------------------------------------------------------
+
+When a Power Pellet is eaten:
+
+  - Reset ghost-eaten chain counter to 0.
+  - Set frightened timer from level tuning.
+  - Normal ghosts enter GhostState.Frightened.
+  - Eaten eyes and ghosts inside the house are not made edible.
+  - Eligible ghosts reverse direction.
+  - Audio switches to frightened siren.
+
+While frightened:
+
+  - Ghosts render blue.
+  - Near the end, ghosts flash blue/white.
+  - Ghosts move slower and choose random legal directions.
+
+Eating frightened ghosts:
+
+  - Chain scores: 200, 400, 800, 1600.
+  - Ghost becomes eyes.
+  - Eyes target the ghost house return tile.
+  - After respawn, ghost exits as normal.
+
+When timer expires:
+
+  - Remaining frightened ghosts return to normal scatter/chase mode.
+  - Chain counter resets.
+  - Audio returns to regular siren.
+
+
+--------------------------------------------------------------------------------
+15. FRUIT SYSTEM
+--------------------------------------------------------------------------------
+
+Fruit appears twice per maze based on pellets eaten. It enters from a tunnel,
+moves through the maze, and exits if not collected.
+
+Fruit spawn thresholds:
+
+  - First fruit: after approximately 64 pellets eaten.
+  - Second fruit: after approximately 176 pellets eaten.
+
+Fruit values by level:
+
+  Level 1 ........ Cherry ......... 100
+  Level 2 ........ Strawberry ..... 200
+  Levels 3-4 ..... Orange ......... 500
+  Levels 5-6 ..... Pretzel ........ 700
+  Levels 7-8 ..... Apple ......... 1000
+  Levels 9-10 .... Pear .......... 2000
+  Levels 11+ ..... Banana ........ 5000
+
+Fruit movement:
+
+  - Fruit follows maze path hints plus random/intersection choices.
+  - Fruit should feel lively and less deterministic than ghosts.
+  - Fruit can be collected when its tile overlaps Ms. Pac-Man's tile or when
+    the pixel distance is below a small threshold.
+  - If fruit reaches an exit tunnel or times out, it despawns.
+
+
+--------------------------------------------------------------------------------
+16. COLLISION SYSTEM
+--------------------------------------------------------------------------------
+
+Collision checks are tile/pixel hybrid:
+
+  - Pellet collection uses tile occupancy.
+  - Player/ghost collision uses pixel distance with a small radius threshold.
+  - Fruit collection uses pixel distance or tile overlap.
+
+Player vs ghost:
+
+  - If ghost is Normal/InHouse/LeavingHouse and contact occurs:
+      - Enter LIFE_LOST unless ghost is safely inside the house.
+
+  - If ghost is Frightened and contact occurs:
+      - Award chained score.
+      - Convert ghost to EatenEyes.
+
+  - If ghost is EatenEyes/ReturningHome:
+      - No harmful collision.
+
+Collision rules should be centralized in CollisionSystem to avoid state-specific
+checks spreading through entity classes.
+
+
+--------------------------------------------------------------------------------
+17. SCORING AND LIVES
+--------------------------------------------------------------------------------
+
+Scoring constants:
+
+  Pellet ................. 10
+  Power Pellet ........... 50
+  Ghost chain ............ 200 / 400 / 800 / 1600
+  Cherry ................. 100
+  Strawberry ............. 200
+  Orange ................. 500
+  Pretzel ................ 700
+  Apple ................. 1000
+  Pear .................. 2000
+  Banana ................ 5000
+
+Lives:
+
+  - Start with 3 lives.
+  - Extra life awarded once at 10,000 points by default.
+  - Remaining lives are shown as icons in the HUD.
+
+Score system:
+
+  type ScoreState = {
+    currentScore: number;
+    highScore: number;
+    extraLifeAwarded: boolean;
+    ghostChainIndex: number;
+  };
+
+High scores:
+
+  - Store local high scores in localStorage.
+  - Keep top 10 entries.
+  - Entry shape: initials, score, date.
+  - Validate initials to 3 uppercase ASCII characters.
+
+
+--------------------------------------------------------------------------------
+18. LEVEL PROGRESSION AND MAZE ROTATION
+--------------------------------------------------------------------------------
+
+Level state:
+
+  type LevelState = {
+    levelNumber: number;
+    mazeId: 'A' | 'B' | 'C' | 'D';
+    pelletsEaten: number;
+    livesRemaining: number;
+  };
+
+Maze rotation:
+
+  - Maze A: Levels 1-2.
+  - Maze B: Levels 3-5.
+  - Maze C: Levels 6-9.
+  - Maze D: Levels 10-13.
+  - Levels 14+: repeat C/D groups, or follow a table matching the desired
+    arcade schedule.
+
+Level start:
+
+  - Load maze definition.
+  - Reset pellet state.
+  - Spawn player and ghosts.
+  - Reset fruit spawn flags.
+  - Reset mode schedule.
+  - Enter READY.
+
+Life restart:
+
+  - Keep eaten pellets.
+  - Keep current level and score.
+  - Reset player/ghost positions.
+  - Reset current frightened state.
+  - Enter READY.
+
+
+--------------------------------------------------------------------------------
+19. RENDERING
+--------------------------------------------------------------------------------
+
+Renderer owns drawing only; it should not mutate game logic.
+
+Render order:
+
+  1. Clear canvas.
+  2. Draw maze walls and static background.
+  3. Draw pellets and power pellets.
+  4. Draw fruit.
+  5. Draw ghosts.
+  6. Draw Ms. Pac-Man.
+  7. Draw HUD.
+  8. Draw state overlays, such as READY!, PAUSED, or GAME OVER.
+  9. Draw optional CRT effect overlay.
+
+Scaling:
+
+  - Render at logical resolution to an internal canvas.
+  - Scale to visible canvas using integer scale where possible.
+  - Use imageSmoothingEnabled = false.
+
+Sprites:
+
+  - Sprite sheets should define frame rectangles in code or JSON.
+  - Directional animation frames:
+      - Ms. Pac-Man chomp frames per direction.
+      - Ghost body frames per direction.
+      - Ghost eyes frames per direction.
+      - Frightened blue and flashing frames.
+      - Fruit sprites.
+
+Fallback rendering:
+
+  - If sprite assets are unavailable, draw simple pixel-art primitives so the
+    game remains playable during early milestones.
+
+
+--------------------------------------------------------------------------------
+20. AUDIO
+--------------------------------------------------------------------------------
+
+AudioManager responsibilities:
+
+  - Initialize AudioContext after first user gesture.
+  - Maintain volume and mute settings.
+  - Play one-shot SFX.
+  - Manage looping siren/frightened sounds.
+  - Stop or duck sounds during pause/death transitions.
+
+Sound events:
+
+  - pelletEaten
+  - powerPelletEaten
+  - ghostEaten
+  - fruitEaten
+  - extraLife
+  - lifeLost
+  - levelClear
+  - gameOver
+
+Procedural approach:
+
+  - Pellet waka: short alternating square/triangle tones.
+  - Siren: looping oscillator whose rate rises as pellets decrease.
+  - Frightened siren: lower, pulsing tone.
+  - Death: descending pitch sweep.
+  - Bonus: short arpeggio.
+
+
+--------------------------------------------------------------------------------
+21. INPUT
+--------------------------------------------------------------------------------
+
+Input maps physical keys to game actions.
+
+Actions:
+
+  - moveUp
+  - moveDown
+  - moveLeft
+  - moveRight
+  - start
+  - pause
+  - confirm
+  - mute
+
+Keyboard defaults:
+
+  - Arrow keys and WASD for movement.
+  - Enter or Space to start/confirm.
+  - P or Escape to pause.
+  - M to mute.
+
+Implementation notes:
+
+  - Prevent browser scrolling for movement keys while the game is focused.
+  - Store current held direction and most recent requested direction.
+  - Support remapping later through OptionsStore.
+  - Gamepad support can be added by polling navigator.getGamepads each frame.
+
+
+--------------------------------------------------------------------------------
+22. STORAGE
+--------------------------------------------------------------------------------
+
+HighScoreStore:
+
+  localStorage key: mspacman.highScores.v1
+
+  type HighScoreEntry = {
+    initials: string;
+    score: number;
+    dateIso: string;
+  };
+
+OptionsStore:
+
+  localStorage key: mspacman.options.v1
+
+  type Options = {
+    masterVolume: number;
+    musicVolume: number;
+    sfxVolume: number;
+    muted: boolean;
+    crtFilter: boolean;
+    colorblindMarkers: boolean;
+    startingLives: number;
+    extraLifeScore: number;
+  };
+
+Storage rules:
+
+  - Treat localStorage data as untrusted.
+  - Validate parsed values.
+  - Fall back to defaults if data is missing or invalid.
+
+
+--------------------------------------------------------------------------------
+23. CONFIGURATION AND TUNING
+--------------------------------------------------------------------------------
+
+Centralize gameplay numbers to avoid magic constants.
+
+Suggested config files:
+
+  constants.ts:
+    - TILE_SIZE
+    - GRID_WIDTH
+    - GRID_HEIGHT
+    - LOGICAL_WIDTH
+    - LOGICAL_HEIGHT
+    - FIXED_TIMESTEP_SECONDS
+
+  scoring.ts:
+    - pellet points
+    - power pellet points
+    - ghost chain scores
+    - fruit scores
+    - extra life threshold
+
+  levelTables.ts:
+    - speed by level range
+    - frightened duration
+    - ghost release rules
+    - scatter/chase schedules
+    - maze rotation
+    - fruit by level
+
+  tuning.ts:
+    - collision radii
+    - cornering tolerance
+    - spawn delays
+    - flash timings
+    - UI timings
+
+
+--------------------------------------------------------------------------------
+24. TESTING STRATEGY
+--------------------------------------------------------------------------------
+
+Most tests should target pure logic, not canvas output.
+
+Unit tests:
+
+  MazeParser:
+    - validates row/column counts.
+    - extracts pellets and power pellets.
+    - rejects missing spawns.
+    - builds passability correctly.
+
+  MovementSystem:
+    - moves along open corridors.
+    - blocks wall movement.
+    - turns from buffered input at intersections.
+    - wraps tunnels correctly.
+
+  GhostAISystem:
+    - Blinky targets player tile.
+    - Pinky targets ahead tile.
+    - Inky target uses Blinky vector.
+    - Sue switches between chase and scatter based on distance.
+    - normal ghosts do not reverse except on mode switch.
+
+  FrightenedSystem:
+    - power pellet sets timer and edible states.
+    - ghost chain score advances correctly.
+    - timer expiry returns ghosts to normal.
+
+  ScoreSystem:
+    - awards all scoring constants correctly.
+    - awards one extra life at threshold.
+    - stores high score ordering.
+
+  LevelSystem:
+    - level clear advances maze schedule.
+    - death reset preserves pellets.
+    - new level resets pellets and fruit flags.
+
+Manual test checklist:
+
+  - Start game from title.
+  - Move smoothly around corners.
+  - Clear a maze.
+  - Lose a life and verify pellet state persists.
+  - Eat all four ghosts in one power pellet.
+  - Verify fruit appears twice.
+  - Verify high score saves after refresh.
+  - Verify pause/mute/options.
+
+
+--------------------------------------------------------------------------------
+25. BUILD AND RUN
+--------------------------------------------------------------------------------
+
+Initial setup commands:
+
+  npm create vite@latest . -- --template vanilla-ts
+  npm install
+  npm install -D vitest
+
+Development:
+
+  npm run dev
+
+Tests:
+
+  npm run test
+
+Production build:
+
+  npm run build
+
+Preview production build:
+
+  npm run preview
+
+Recommended package scripts:
+
+  {
+    \"scripts\": {
+      \"dev\": \"vite\",
+      \"build\": \"tsc && vite build\",
+      \"preview\": \"vite preview\",
+      \"test\": \"vitest run\",
+      \"test:watch\": \"vitest\"
+    }
+  }
+
+
+--------------------------------------------------------------------------------
+26. IMPLEMENTATION MILESTONES
+--------------------------------------------------------------------------------
+
+M0 - Project Scaffold
+  - Create Vite TypeScript project.
+  - Add canvas to index.html.
+  - Add fixed-timestep GameLoop.
+  - Add StateMachine with TITLE, READY, PLAYING, PAUSED.
+  - Add placeholder Renderer and Input.
+  - Acceptance: blank canvas starts, state transitions work, tests run.
+
+M1 - Maze and Player Movement
+  - Implement MazeDefinition, MazeParser, and MazeRenderer.
+  - Add one playable maze layout.
+  - Implement tile/pixel conversion.
+  - Implement player movement and input buffering.
+  - Implement tunnel wrapping.
+  - Acceptance: Ms. Pac-Man can move smoothly through a rendered maze and
+    cannot pass through walls.
+
+M2 - Pellets, Score, and Level Clear
+  - Parse pellets and power pellets from maze data.
+  - Implement PelletSystem and ScoreSystem.
+  - Add HUD score/lives display.
+  - Detect level clear when all pellets are eaten.
+  - Acceptance: player can clear a pellet-filled maze and score updates.
+
+M3 - Ghost Foundation and Chase AI
+  - Add Ghost entity model.
+  - Implement ghost movement through intersections.
+  - Add scatter/chase timer schedule.
+  - Implement Blinky, Pinky, Inky, and Sue target functions.
+  - Add ghost/player harmful collision and life lost flow.
+  - Acceptance: ghosts pursue according to their roles and can cost lives.
+
+M4 - Power Pellets and Frightened Mode
+  - Implement FrightenedSystem.
+  - Add ghost reversal on power pellet.
+  - Add ghost eating, chain scoring, eyes-return, and respawn.
+  - Add frightened flashing.
+  - Acceptance: power pellets make ghosts edible and chained scoring works.
+
+M5 - Fruit, Levels, and Maze Rotation
+  - Add FruitSystem with two fruit spawns per maze.
+  - Add fruit values by level.
+  - Add mazes B, C, and D.
+  - Implement maze rotation schedule.
+  - Add level-specific speed and frightened tuning.
+  - Acceptance: multiple levels rotate through mazes and fruit values progress.
+
+M6 - Audio, UI, and Polish
+  - Implement AudioManager and procedural SFX.
+  - Add title, ready, pause, game over, and high-score screens.
+  - Add localStorage high-score persistence.
+  - Add sprite sheets or polished fallback sprites.
+  - Add optional CRT filter and colorblind markers.
+  - Acceptance: game feels complete and supports repeat score-chasing play.
+
+M7 - Intermissions and Stretch Goals
+  - Add classic-style intermission sequences.
+  - Add attract/demo mode.
+  - Add gamepad support.
+  - Add custom maze or challenge mode if desired.
+  - Acceptance: stretch features layer on top without changing core systems.
+
+
+--------------------------------------------------------------------------------
+27. ACCEPTANCE CRITERIA
+--------------------------------------------------------------------------------
+
+Core game is complete when:
+
+  - Player can start a game, move, eat pellets, and clear levels.
+  - Ghosts have distinct, test-covered target behaviors.
+  - Scatter, chase, frightened, and eyes-return states work.
+  - Power Pellets, ghost chain scoring, fruit, lives, extra life, and high score
+    all function.
+  - Four maze layouts rotate according to the level schedule.
+  - Game can be paused, muted, restarted, and played after browser refresh.
+  - Logic tests pass.
+  - Production build succeeds.
+
+
+--------------------------------------------------------------------------------
+28. TECHNICAL RISKS AND MITIGATIONS
+--------------------------------------------------------------------------------
+
+Risk: Ghost AI feels unfair or too random.
+  Mitigation: Keep target functions deterministic in chase/scatter and limit
+  randomness to frightened and fruit movement. Add debug overlay for targets.
+
+Risk: Movement feels imprecise.
+  Mitigation: Tune cornering tolerance, snap-to-center behavior, and input
+  buffering early. Make this part of M1 acceptance.
+
+Risk: Maze ASCII data is error-prone.
+  Mitigation: Parser validation plus tests for every maze file.
+
+Risk: Browser audio may not start automatically.
+  Mitigation: Initialize AudioContext only after first user gesture.
+
+Risk: Sprite assets may lag behind gameplay.
+  Mitigation: Maintain fallback primitive rendering until art is available.
+
+Risk: Faithful timing is hard to tune.
+  Mitigation: Keep all timing/speed values in config tables and write tests for
+  level table selection.
+
+
+--------------------------------------------------------------------------------
+29. DEBUG TOOLS
+--------------------------------------------------------------------------------
+
+Add a debug overlay gated by a URL flag or dev key.
+
+Debug overlay can show:
+
+  - Current state.
+  - Level number and maze ID.
+  - Scatter/chase/frightened mode and timer.
+  - Entity tile positions.
+  - Ghost target tiles.
+  - Remaining pellets.
+  - Fruit spawn status.
+  - FPS and fixed-step accumulator.
+
+Debug controls:
+
+  - Skip level.
+  - Toggle frightened mode.
+  - Toggle ghost target markers.
+  - Grant extra life.
+  - Spawn fruit.
+
+Debug tools must not be visible in production unless explicitly enabled.
+
+
+--------------------------------------------------------------------------------
+30. FUTURE EXTENSIONS
+--------------------------------------------------------------------------------
+
+Possible future additions:
+
+  - Online leaderboards.
+  - Replay recording using deterministic seeds and input logs.
+  - Maze editor.
+  - Daily challenge seeds.
+  - Alternative visual themes.
+  - Accessibility presets.
+  - Full attract/demo mode driven by scripted or recorded inputs.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

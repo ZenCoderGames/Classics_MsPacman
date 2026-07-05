@@ -1,0 +1,169 @@
+{
+  "grid": {
+    "width": 28,
+    "height": 31,
+    "tileSize": 40,
+    "hudHeight": 0
+  },
+  "levelSymbols": {
+    "wall": "@",
+    "food": "f",
+    "powerFood": "s",
+    "enemySpawn": "e",
+    "playerSpawn": "p",
+    "empty": " "
+  },
+  "mazeColors": {
+    "A": "#68c9ff",
+    "B": "#ff7ed1",
+    "C": "#d79b54",
+    "D": "#4f79ff"
+  },
+  "mazeRotation": {
+    "AUntil": 2,
+    "BUntil": 5,
+    "CUntil": 9,
+    "DUntil": 13,
+    "repeatStart": 14,
+    "repeatGroupSize": 4
+  },
+  "defaultSpawns": {
+    "player": { "x": 13, "y": 23 },
+    "ghosts": {
+      "blinky": { "x": 13, "y": 14 },
+      "pinky": { "x": 14, "y": 14 },
+      "inky": { "x": 15, "y": 14 },
+      "sue": { "x": 17, "y": 14 }
+    }
+  },
+  "scatterTargets": {
+    "blinky": { "x": 26, "y": 1 },
+    "pinky": { "x": 1, "y": 1 },
+    "inky": { "x": 26, "y": 29 },
+    "sue": { "x": 1, "y": 29 }
+  },
+  "levelTuning": {
+    "playerBaseSpeed": 124,
+    "playerRampPerLevel": 3,
+    "playerRampMaxLevels": 5,
+    "ghostBaseSpeed": 104,
+    "ghostRampPerLevel": 4.4,
+    "ghostRampMaxLevels": 12,
+    "frightenedBaseSpeed": 84,
+    "frightenedSpeedLossPerLevel": 2,
+    "frightenedMinSpeed": 68,
+    "eyesSpeed": 208,
+    "frightenedBaseDuration": 12,
+    "frightenedDurationLossEveryLevels": 2
+  },
+  "timing": {
+    "readySeconds": 1.8,
+    "lifeRestartReadySeconds": 1.3,
+    "initialScatterSeconds": 7,
+    "scatterSeconds": 6,
+    "chaseSeconds": 20,
+    "ghostKillFreezeSeconds": 1,
+    "ghostKillShakeSeconds": 0.45,
+    "ghostRespawnWaitSeconds": 4,
+    "playerDeathFreezeSeconds": 1,
+    "playerDeathShakeSeconds": 0.45,
+    "flashIntervalSeconds": 0.11,
+    "playerAnimationFrameMs": 120,
+    "frightenedFlashMs": 140,
+    "randomTurnFrameMs": 180
+  },
+  "movement": {
+    "centerTolerance": 0.05,
+    "ghostReleaseDelays": {
+      "blinky": 0,
+      "pinky": 1.5,
+      "inky": 3,
+      "sue": 4.5
+    },
+    "ghostExitTile": { "x": 14, "y": 11 },
+    "ghostSpawnArea": { "minX": 11, "maxX": 17, "minY": 12, "maxY": 16 },
+    "playerBlockedArea": { "minX": 11, "maxX": 18, "minY": 12, "maxY": 16 },
+    "blinkyElroyPelletThreshold": 30,
+    "blinkyElroySpeedBonus": 36
+  },
+  "ai": {
+    "pinkyAheadTiles": 4,
+    "inkyAheadTiles": 2,
+    "sueScatterDistanceSquared": 64
+  },
+  "collision": {
+    "playerGhostRadius": 6,
+    "fruitRadius": 7
+  },
+  "scoring": {
+    "pellet": 10,
+    "powerPellet": 50,
+    "ghostChain": [200, 400, 800, 1600],
+    "extraLifeScore": 10000
+  },
+  "fruit": {
+    "spawnThresholds": [64, 176],
+    "durationSeconds": 13,
+    "speed": 46,
+    "spawnTile": { "x": 0, "y": 15 },
+    "table": [
+      { "maxLevel": 1, "name": "Cherry", "points": 100, "color": "#ff3b5f" },
+      { "maxLevel": 2, "name": "Strawberry", "points": 200, "color": "#ff5f7d" },
+      { "maxLevel": 4, "name": "Orange", "points": 500, "color": "#ff9d27" },
+      { "maxLevel": 6, "name": "Pretzel", "points": 700, "color": "#d88c41" },
+      { "maxLevel": 8, "name": "Apple", "points": 1000, "color": "#e83535" },
+      { "maxLevel": 10, "name": "Pear", "points": 2000, "color": "#b6ec54" },
+      { "maxLevel": 999, "name": "Banana", "points": 5000, "color": "#ffe561" }
+    ]
+  },
+  "render": {
+    "playerSpriteSize": 64,
+    "playerScale": 1.2,
+    "ghostSpriteSize": 64,
+    "ghostScale": 1,
+    "wallOutlineColor": "#ff2a1f",
+    "wallInnerColor": "#ffc0aa",
+    "wallGlowColor": "rgba(255, 42, 31, 0.7)",
+    "wallInnerGlowColor": "rgba(255, 192, 170, 0.42)",
+    "wallOuterCornerRadius": 10,
+    "wallInnerCornerRadius": 8,
+    "wallInset": 4,
+    "pelletColor": "#f5f3ff",
+    "pelletGlowColor": "rgba(255, 255, 255, 0.35)",
+    "pelletGlowBlur": 2,
+    "pelletSize": 6,
+    "powerPelletSize": 15,
+    "powerPelletColor": "#ffe861",
+    "powerPelletGlowColor": "rgba(255, 232, 97, 0.5)",
+    "powerPelletPulse": 0.8,
+    "scorePopupDuration": 0.9,
+    "scorePopupRiseSpeed": 28,
+    "scorePopupColor": "#fff8c4",
+    "scorePopupFontSize": 8,
+    "frightenedGhostFilter": "saturate(0) brightness(2.1) contrast(0.88)",
+    "frightenedGhostFlashFilter": "saturate(0) brightness(3.2)",
+    "fruitRadius": 4.8,
+    "fruitLeafColor": "#5df06e",
+    "fruitLeafOffset": { "x": 1, "y": -6 },
+    "fruitLeafSize": { "width": 3, "height": 2 },
+    "deathFlashFilter": "brightness(2.8) grayscale(1)"
+  },
+  "shake": {
+    "amplitude": 4,
+    "xFrequency": 95,
+    "yFrequency": 120,
+    "yScale": 0.65
+  },
+  "audio": {
+    "defaultBeepDuration": 0.06,
+    "defaultBeepGain": 0.035,
+    "start": { "frequency": 440, "duration": 0.12, "type": "triangle" },
+    "pellet": { "baseFrequency": 180, "alternateFrequencyOffset": 60, "duration": 0.025, "type": "square", "gain": 0.018 },
+    "levelClear": { "frequency": 680, "duration": 0.15, "type": "triangle", "gain": 0.05 },
+    "powerPellet": { "frequency": 110, "duration": 0.22, "type": "sawtooth", "gain": 0.035 },
+    "ghostEaten": { "baseFrequency": 520, "chainFrequencyStep": 80, "duration": 0.1, "type": "triangle", "gain": 0.04 },
+    "fruitEaten": { "frequency": 760, "duration": 0.13, "type": "triangle", "gain": 0.045 },
+    "playerDeath": { "frequency": 90, "duration": 0.45, "type": "sawtooth", "gain": 0.035 },
+    "extraLife": { "frequency": 880, "duration": 0.16, "type": "triangle", "gain": 0.05 }
+  }
+}

@@ -1,0 +1,341 @@
+================================================================================
+GAME DESIGN DOCUMENT
+Ms. Pac-Man (Faithful Recreation)
+================================================================================
+
+Version:   1.0
+Status:    Draft
+Genre:     Arcade / Maze Chase
+Platform:  Desktop (Windows / macOS / Linux)
+Players:   1 (alternating 2-player supported)
+Audience:  All ages; fans of classic arcade games
+
+
+--------------------------------------------------------------------------------
+1. HIGH-LEVEL CONCEPT
+--------------------------------------------------------------------------------
+
+Ms. Pac-Man is a top-down maze chase game. The player guides Ms. Pac-Man
+through an enclosed maze, eating every pellet while avoiding four colored
+ghosts. Eating a large Power Pellet briefly turns the ghosts vulnerable,
+letting Ms. Pac-Man eat them for bonus points. Clearing all pellets in a maze
+advances the player to the next level.
+
+The game is a faithful recreation of the 1982 arcade classic, emphasizing tight
+controls, deterministic-yet-varied ghost behavior, four rotating mazes, moving
+bonus fruit, and escalating difficulty.
+
+Design Pillars:
+  - Readable, fair, twitch-precise movement.
+  - Distinct ghost personalities that create emergent tension.
+  - Risk/reward loop around Power Pellets and bonus fruit.
+  - "One more try" replayability through score chasing.
+
+
+--------------------------------------------------------------------------------
+2. CORE GAMEPLAY LOOP
+--------------------------------------------------------------------------------
+
+  1. Navigate the maze and eat pellets (dots).
+  2. Avoid ghosts; being touched by a non-frightened ghost costs a life.
+  3. Eat Power Pellets to make ghosts frightened, then hunt them for points.
+  4. Grab moving bonus fruit for extra points.
+  5. Eat all pellets to clear the maze and advance to the next level.
+  6. Repeat with faster ghosts, shorter frightened durations, and new mazes.
+  7. Lose all lives -> Game Over -> score recorded to high score table.
+
+
+--------------------------------------------------------------------------------
+3. CONTROLS
+--------------------------------------------------------------------------------
+
+Movement is 4-directional (up, down, left, right) along the maze grid.
+Input is "buffered": pressing a direction turns Ms. Pac-Man as soon as the
+next tile allows it, enabling smooth cornering.
+
+  Keyboard (primary):
+    - Arrow Keys ........ Move Up / Down / Left / Right
+    - W A S D ........... Alternate movement
+    - P or Esc .......... Pause / Resume
+    - Enter / Space ..... Confirm / Start
+    - M ................. Mute / Unmute
+
+  Gamepad (optional):
+    - D-Pad / Left Stick  Move
+    - Start ............. Pause
+    - A / Cross ......... Confirm
+
+
+--------------------------------------------------------------------------------
+4. THE MAZE
+--------------------------------------------------------------------------------
+
+- The playfield is a tile-based grid (28 tiles wide x 31 tiles tall,
+  classic proportions).
+- Walls block movement; corridors are one tile wide.
+- One or two horizontal "warp tunnels" connect the left and right edges;
+  entities exiting one side reappear on the other. Ghosts move at reduced
+  speed while inside tunnels.
+- The ghost house (pen) sits at the maze center; ghosts start or respawn here.
+- Four distinct maze layouts rotate as the player progresses (see Section 11).
+- Maze color changes per level group for visual variety.
+
+
+--------------------------------------------------------------------------------
+5. COLLECTIBLES & SCORING
+--------------------------------------------------------------------------------
+
+Pellets (Dots):
+  - Small pellet ............ 10 points
+  - Power Pellet (energizer)  50 points
+  - 4 Power Pellets per maze (one near each corner region).
+
+Ghosts (while frightened):
+  - 1st ghost eaten ......... 200 points
+  - 2nd ghost eaten ......... 400 points
+  - 3rd ghost eaten ......... 800 points
+  - 4th ghost eaten ......... 1600 points
+  - Multiplier resets when the Power Pellet effect ends.
+
+Bonus Fruit (moving; enters via a tunnel and roams the maze):
+  - Cherry .................. 100 points
+  - Strawberry ............. 200 points
+  - Orange ................. 500 points
+  - Pretzel ................ 700 points
+  - Apple .................. 1000 points
+  - Pear .................. 2000 points
+  - Banana ................ 5000 points
+  - Fruit appears twice per maze after a set number of pellets are eaten,
+    then leaves if not collected in time.
+
+Extra Life:
+  - Awarded at 10,000 points (one time). Optional setting for additional.
+
+Level Clear:
+  - No direct points; advances the level and increments difficulty.
+
+
+--------------------------------------------------------------------------------
+6. THE GHOSTS
+--------------------------------------------------------------------------------
+
+Four ghosts pursue Ms. Pac-Man, each with a signature targeting behavior.
+Ghosts cycle between three global modes on a timer: SCATTER (retreat to a home
+corner), CHASE (pursue using personality logic), and FRIGHTENED (flee, edible).
+
+  Blinky (Red) .... Aggressive. Chase target = Ms. Pac-Man's current tile.
+                    Speeds up ("Cruise Elroy") as pellets dwindle.
+
+  Pinky (Pink) .... Ambusher. Chase target = a few tiles ahead of
+                    Ms. Pac-Man's facing direction.
+
+  Inky (Cyan) ..... Unpredictable. Chase target derived from both Blinky's
+                    position and Ms. Pac-Man's, producing flanking behavior.
+
+  Sue (Orange) .... Shy. Chases when far away; scatters to its corner when
+                    close to Ms. Pac-Man.
+
+Ghost States:
+  - Normal:      Uses scatter/chase target. Contact = lose a life.
+  - Frightened:  Turns blue, slows, moves semi-randomly, flees.
+                 Contact = ghost eaten (points), reverts to eyes.
+  - Eaten (eyes): Fast-travels back to the ghost house, then respawns.
+
+Note: In Ms. Pac-Man, ghost movement includes intentional randomness,
+making patterns less exploitable than the original Pac-Man.
+
+
+--------------------------------------------------------------------------------
+7. POWER PELLET / FRIGHTENED MECHANIC
+--------------------------------------------------------------------------------
+
+- Eating a Power Pellet sets all active ghosts to FRIGHTENED.
+- Frightened ghosts reverse direction, slow down, and become edible.
+- A visual "warning flash" signals the last ~2 seconds before the effect ends.
+- Frightened duration shrinks as levels increase; at high levels it may reach
+  zero (ghosts no longer turn blue).
+- Eating consecutive ghosts within one Power Pellet chains the score
+  multiplier (200 -> 400 -> 800 -> 1600).
+
+
+--------------------------------------------------------------------------------
+8. LIVES, DEATH & GAME OVER
+--------------------------------------------------------------------------------
+
+- The player starts with 3 lives (configurable: 1-5).
+- Touching a non-frightened ghost triggers a death animation and costs a life.
+- The maze state (eaten pellets) persists across deaths within a level.
+- After death, Ms. Pac-Man and ghosts reset to starting positions.
+- When lives reach zero, the game ends and the score is submitted to the
+  local high score table.
+
+
+--------------------------------------------------------------------------------
+9. DIFFICULTY PROGRESSION
+--------------------------------------------------------------------------------
+
+As levels increase:
+  - Ghost base speed increases.
+  - Frightened duration decreases (down to none).
+  - Cruise Elroy (Blinky speed-up) triggers earlier.
+  - Bonus fruit values increase.
+  - Maze layout rotates on a fixed schedule.
+
+Speed is capped so the game remains fair but demanding at high levels.
+
+
+--------------------------------------------------------------------------------
+10. GAME STATES / SCREENS
+--------------------------------------------------------------------------------
+
+  - Attract / Title Screen: Logo, "Press Start", high score, demo/attract mode.
+  - Ready State: "READY!" prompt before play begins in a maze.
+  - Playing: Active gameplay.
+  - Paused: Overlay; gameplay frozen.
+  - Life Lost: Death animation, then reset or Game Over.
+  - Level Clear / Intermission: Maze flash, occasional cut-scene between
+    level groups (classic act intermissions).
+  - Game Over: Final score, high score entry if qualified.
+  - High Score Table: Top scores with initials.
+
+
+--------------------------------------------------------------------------------
+11. LEVEL / MAZE ROTATION
+--------------------------------------------------------------------------------
+
+Four mazes rotate across levels (classic schedule):
+  - Maze A (Pink) ...... Levels 1-2
+  - Maze B (Light Blue)  Levels 3-5
+  - Maze C (Brown) ..... Levels 6-9
+  - Maze D (Dark Blue) . Levels 10-13
+  - Then the C/D cycle repeats for remaining levels.
+
+Intermission cut-scenes ("Acts") play between certain level groups to tell the
+lighthearted story of Pac-Man and Ms. Pac-Man.
+
+
+--------------------------------------------------------------------------------
+12. AUDIO
+--------------------------------------------------------------------------------
+
+Music:
+  - Attract/title jingle.
+  - Level start "READY!" tune.
+  - Intermission cut-scene music.
+  - Game Over sting.
+
+Sound Effects:
+  - Pellet-eating "waka" loop.
+  - Power Pellet siren shift.
+  - Ghost eaten.
+  - Fruit eaten.
+  - Death sound.
+  - Extra life chime.
+  - Ghost "eyes returning" hum.
+
+Ambient siren tempo rises as fewer pellets remain, increasing tension.
+
+
+--------------------------------------------------------------------------------
+13. ART & VISUAL STYLE
+--------------------------------------------------------------------------------
+
+- Faithful pixel-art aesthetic evoking the 1982 arcade cabinet.
+- Bright, high-contrast palette; each ghost has a unique, readable color.
+- Ms. Pac-Man distinguished by her red bow, lipstick, and beauty mark.
+- Crisp sprite animation: mouth chomp, ghost wobble, frightened blue/white,
+  ghost eyes.
+- Clean HUD: score, high score, remaining lives (Ms. Pac-Man icons), and
+  collected fruit row.
+- Optional CRT scanline / bloom filter toggle for authenticity.
+
+
+--------------------------------------------------------------------------------
+14. USER INTERFACE / HUD
+--------------------------------------------------------------------------------
+
+- Use the skill make-classic-game-ui for the HTML layout and javascript for the game logic.
+- The top left panel shows Score, the top right shows Lives left
+
+
+--------------------------------------------------------------------------------
+15. SCORING SUMMARY TABLE
+--------------------------------------------------------------------------------
+
+  Item                    Points
+  ----------------------  --------------------------------
+  Pellet                  10
+  Power Pellet            50
+  Ghost (chained)         200 / 400 / 800 / 1600
+  Cherry                  100
+  Strawberry              200
+  Orange                  500
+  Pretzel                 700
+  Apple                   1000
+  Pear                    2000
+  Banana                  5000
+  Extra Life              at 10,000 points
+
+
+--------------------------------------------------------------------------------
+16. WIN / LOSE CONDITIONS
+--------------------------------------------------------------------------------
+
+  Advance:  Eat every pellet and Power Pellet in the current maze.
+  Lose life: Contact a non-frightened ghost.
+  Game Over: All lives lost.
+  Goal:     Maximize score; the game is endless until Game Over
+            (classic kill-screen behavior at extreme levels is out of scope).
+
+
+--------------------------------------------------------------------------------
+17. ACCESSIBILITY & OPTIONS
+--------------------------------------------------------------------------------
+
+  - Remappable controls.
+  - Adjustable starting lives and extra-life threshold.
+  - Master / music / SFX volume sliders; mute toggle.
+  - Colorblind-friendly ghost indicators (optional glyphs).
+  - Toggle CRT filter.
+  - Optional slow / practice mode for new players.
+
+
+--------------------------------------------------------------------------------
+18. STRETCH GOALS (NON-CORE)
+--------------------------------------------------------------------------------
+
+  - Online / local high-score leaderboard.
+  - Additional custom mazes and a maze editor.
+  - Cooperative or versus multiplayer modes.
+  - Achievements and daily challenge seeds.
+  - Full recreation of all classic intermission cut-scenes.
+
+
+--------------------------------------------------------------------------------
+19. GLOSSARY
+--------------------------------------------------------------------------------
+
+  Pellet / Dot ...... Small collectible worth 10 points.
+  Power Pellet ...... Large energizer; frightens ghosts.
+  Frightened ........ Ghost state in which ghosts are edible.
+  Scatter ........... Ghost mode; retreat to a home corner.
+  Chase ............. Ghost mode; actively pursue using personality logic.
+  Cruise Elroy ...... Blinky's late-maze speed-up behavior.
+  Warp Tunnel ....... Edge passage linking left and right sides of the maze.
+  Ghost House / Pen . Central enclosure where ghosts start and respawn.
+  Intermission ...... Non-interactive story cut-scene between level groups.
+
+--------------------------------------------------------------------------------
+20. GAME FEEL
+--------------------------------------------------------------------------------
+- When the player is killed, do the following: Screenshake, Slow time, Particle Effect, Sound Effect.
+- When the player eats a pellet, do the following: Particle Effect, Sound Effect.
+
+--------------------------------------------------------------------------------
+21. GAME FEEL
+--------------------------------------------------------------------------------
+- All configurable elements should be defined in config.js
+
+================================================================================
+END OF DOCUMENT
+================================================================================
