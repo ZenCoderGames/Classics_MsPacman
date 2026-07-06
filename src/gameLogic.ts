@@ -14,7 +14,7 @@ export const LOGICAL_HEIGHT = GRID_HEIGHT * TILE_SIZE + HUD_HEIGHT;
 export type MazeId = 'A' | 'B' | 'C' | 'D';
 export type Direction = 'up' | 'down' | 'left' | 'right' | 'none';
 export type GhostId = 'blinky' | 'pinky' | 'inky' | 'sue';
-export type GhostMode = 'scatter' | 'chase' | 'frightened' | 'eatenFlash' | 'eyes' | 'respawning';
+export type GhostMode = 'scatter' | 'chase' | 'frightened' | 'eyes' | 'respawning';
 
 export type TileCoord = {
   x: number;
@@ -25,6 +25,7 @@ export type MazeDefinition = {
   id: MazeId;
   wallColor: string;
   passable: boolean[][];
+  ghostOnly: boolean[][];
   playerSpawn: TileCoord;
   ghostSpawns: Record<GhostId, TileCoord>;
   scatterTargets: Record<GhostId, TileCoord>;
@@ -159,6 +160,7 @@ export function createMazeDefinition(id: MazeId): MazeDefinition {
     id,
     wallColor: MAZE_COLORS[id],
     passable,
+    ghostOnly: buildGhostOnlyMask(rows),
     playerSpawn,
     ghostSpawns,
     scatterTargets: {
@@ -185,6 +187,59 @@ function parseLevelRows(levelText: string, id: MazeId): string[] {
 
     return row.padEnd(GRID_WIDTH, ' ');
   });
+}
+
+function buildGhostOnlyMask(rows: string[]): boolean[][] {
+  const { enemySpawn, empty, wall } = config.levelSymbols;
+  const ghostOnly = Array.from({ length: GRID_HEIGHT }, () => Array(GRID_WIDTH).fill(false));
+  const queue: TileCoord[] = [];
+
+  const isGhostInteriorCell = (cell: string): boolean => cell === enemySpawn || cell === empty;
+
+  for (let y = 0; y < GRID_HEIGHT; y += 1) {
+    for (let x = 0; x < GRID_WIDTH; x += 1) {
+      if (rows[y][x] === enemySpawn) {
+        ghostOnly[y][x] = true;
+        queue.push({ x, y });
+      }
+    }
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const neighbors = [
+      { x: current.x + 1, y: current.y },
+      { x: current.x - 1, y: current.y },
+      { x: current.x, y: current.y + 1 },
+      { x: current.x, y: current.y - 1 },
+    ];
+
+    for (const neighbor of neighbors) {
+      if (neighbor.x < 0 || neighbor.x >= GRID_WIDTH || neighbor.y < 0 || neighbor.y >= GRID_HEIGHT) {
+        continue;
+      }
+
+      if (ghostOnly[neighbor.y][neighbor.x]) continue;
+
+      const cell = rows[neighbor.y][neighbor.x];
+      if (cell === wall || !isGhostInteriorCell(cell)) continue;
+
+      ghostOnly[neighbor.y][neighbor.x] = true;
+      queue.push(neighbor);
+    }
+  }
+
+  return ghostOnly;
+}
+
+export function isPlayerPassable(maze: MazeDefinition, tile: TileCoord): boolean {
+  if (!isPassable(maze, tile)) return false;
+
+  if (tile.x < 0 || tile.x >= GRID_WIDTH || tile.y < 0 || tile.y >= GRID_HEIGHT) {
+    return true;
+  }
+
+  return !maze.ghostOnly[tile.y][tile.x];
 }
 
 export function isPassable(maze: MazeDefinition, tile: TileCoord): boolean {
@@ -242,13 +297,114 @@ export function chooseDirectionToward(
   const legal = options.length > 0 ? options : legalDirections(maze, tile, currentDirection, true);
   if (legal.length === 0) return 'none';
 
+  const directionPriority: Direction[] = ['up', 'left', 'down', 'right'];
+
   return legal.reduce((best, direction) => {
     const vector = DIRECTION_VECTORS[direction];
     const next = { x: tile.x + vector.x, y: tile.y + vector.y };
     const bestVector = DIRECTION_VECTORS[best];
     const bestNext = { x: tile.x + bestVector.x, y: tile.y + bestVector.y };
-    return squaredDistance(next, target) < squaredDistance(bestNext, target) ? direction : best;
+    const nextDistance = squaredDistance(next, target);
+    const bestDistance = squaredDistance(bestNext, target);
+
+    if (nextDistance < bestDistance) return direction;
+    if (nextDistance > bestDistance) return best;
+
+    return directionPriority.indexOf(direction) < directionPriority.indexOf(best) ? direction : best;
   }, legal[0]);
+}
+
+function manhattanDistance(a: TileCoord, b: TileCoord): number {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function directionBetween(from: TileCoord, to: TileCoord): Direction {
+  let dx = to.x - from.x;
+  let dy = to.y - from.y;
+
+  if (dx > 1) dx -= GRID_WIDTH;
+  if (dx < -1) dx += GRID_WIDTH;
+  if (dy > 1) dy -= GRID_HEIGHT;
+  if (dy < -1) dy += GRID_HEIGHT;
+
+  if (dx === 1) return 'right';
+  if (dx === -1) return 'left';
+  if (dy === 1) return 'down';
+  if (dy === -1) return 'up';
+  return 'none';
+}
+
+function pathNeighbor(maze: MazeDefinition, tile: TileCoord, direction: Direction): TileCoord | null {
+  const vector = DIRECTION_VECTORS[direction];
+  const next = { x: tile.x + vector.x, y: tile.y + vector.y };
+  if (!isPassable(maze, next)) return null;
+  return wrapTile(next);
+}
+
+export function findShortestPath(maze: MazeDefinition, start: TileCoord, goal: TileCoord): TileCoord[] {
+  if (start.x === goal.x && start.y === goal.y) return [{ ...start }];
+
+  const open = [tileKey(start)];
+  const cameFrom = new Map<string, string | null>([[tileKey(start), null]]);
+  const gScore = new Map<string, number>([[tileKey(start), 0]]);
+  const fScore = new Map<string, number>([[tileKey(start), manhattanDistance(start, goal)]]);
+
+  while (open.length > 0) {
+    open.sort((a, b) => (fScore.get(a) ?? Number.POSITIVE_INFINITY) - (fScore.get(b) ?? Number.POSITIVE_INFINITY));
+    const currentKey = open.shift()!;
+    const [currentX, currentY] = currentKey.split(',').map(Number);
+    const current = { x: currentX, y: currentY };
+
+    if (current.x === goal.x && current.y === goal.y) {
+      const path: TileCoord[] = [];
+      let cursor: string | null = currentKey;
+      while (cursor) {
+        const [x, y] = cursor.split(',').map(Number);
+        path.unshift({ x, y });
+        cursor = cameFrom.get(cursor) ?? null;
+      }
+      return path;
+    }
+
+    for (const direction of DIRECTIONS) {
+      const neighbor = pathNeighbor(maze, current, direction);
+      if (!neighbor) continue;
+
+      const neighborKey = tileKey(neighbor);
+      const tentativeG = (gScore.get(currentKey) ?? Number.POSITIVE_INFINITY) + 1;
+
+      if (tentativeG >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) continue;
+
+      cameFrom.set(neighborKey, currentKey);
+      gScore.set(neighborKey, tentativeG);
+      fScore.set(neighborKey, tentativeG + manhattanDistance(neighbor, goal));
+
+      if (!open.includes(neighborKey)) {
+        open.push(neighborKey);
+      }
+    }
+  }
+
+  return [];
+}
+
+export function chooseDirectionOnShortestPath(
+  maze: MazeDefinition,
+  tile: TileCoord,
+  currentDirection: Direction,
+  target: TileCoord,
+  allowReverse: boolean,
+): Direction {
+  const path = findShortestPath(maze, tile, target);
+  if (path.length >= 2) {
+    const direction = directionBetween(tile, path[1]);
+    if (!allowReverse && currentDirection !== 'none' && direction === OPPOSITE[currentDirection]) {
+      return chooseDirectionToward(maze, tile, currentDirection, target, false);
+    }
+    return direction;
+  }
+
+  return chooseDirectionToward(maze, tile, currentDirection, target, allowReverse);
 }
 
 export function getGhostTarget(

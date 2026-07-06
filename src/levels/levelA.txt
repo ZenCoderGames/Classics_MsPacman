@@ -2,11 +2,11 @@
 @ffffffffffff@@ffffffffffff@
 @f@@@@f@@@@@f@@f@@@@@f@@@@f@
 @s@@@@f@@@@@f@@f@@@@@f@@@@s@
-@f@@@@f@@@@@f@@f@@@@@f@@@@f@
-@ffffffffffffffffffffffffff@
-@f@@@@f@@f@@@@@@@@f@@f@@@@f@
-@f@@@@f@@f@@@@@@@@f@@f@@@@f@
-@ffffff@@ffff@@ffff@@ffffff@
+@ffffff@@@@@f@@f@@@@@f@@@@f@
+@@@@@@fffffffffffffffffffff@
+     @f@@f@@@@@@@@f@@f@@@@f@
+@@@@@@f@@f@@@@@@@@f@@f@@@@f@
+ ffffff@@ffff@@ffff@@ffffff 
 @@@@@@f@@@@@f@@f@@@@@f@@@@@@
 @@@@@@f@@@@@f@@f@@@@@f@@@@@@
 @@@@@@f@@ffffffffff@@f@@@@@@
@@ -25,7 +25,7 @@
 @@@f@@f@@f@@@@@@@@f@@f@@f@@@
 @@@f@@f@@f@@@@@@@@f@@f@@f@@@
 @ffffff@@ffff@@ffff@@ffffff@
-@f@@@@@@@@@@f@@f@@@@@@@@@@f@
-@f@@@@@@@@@@f@@f@@@@@@@@@@f@
+@f@@@@f@@@@@f@@f@@@@@@@@@@f@
+@f@@@@f@@@@@f@@f@@@@@@@@@@f@
 @ffffffffffffffffffffffffff@
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@

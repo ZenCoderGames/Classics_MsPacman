@@ -17,6 +17,13 @@ import sueDownUrl from '../art/Ghosts/Sue/Sue1.png';
 import sueRightUrl from '../art/Ghosts/Sue/Sue2.png';
 import sueLeftUrl from '../art/Ghosts/Sue/Sue3.png';
 import sueUpUrl from '../art/Ghosts/Sue/Sue4.png';
+import eyesUrl from '../art/Ghosts/Eyes.png';
+import vulnerableDownUrl from '../art/Ghosts/Vulnerable/Vulnerable1.png';
+import vulnerableRightUrl from '../art/Ghosts/Vulnerable/Vulnerable2.png';
+import vulnerableLeftUrl from '../art/Ghosts/Vulnerable/Vulnerable3.png';
+import vulnerableUpUrl from '../art/Ghosts/Vulnerable/Vulnerable4.png';
+import cherryUrl from '../art/Cherry.png';
+import strawberryUrl from '../art/Strawberry.png';
 import config from './config.json';
 import {
   DIRECTION_VECTORS,
@@ -27,15 +34,16 @@ import {
   LOGICAL_WIDTH,
   OPPOSITE,
   TILE_SIZE,
+  chooseDirectionOnShortestPath,
   chooseDirectionToward,
   createMazeDefinition,
   getGhostTarget,
   getMazeIdForLevel,
   isPassable,
+  isPlayerPassable,
   legalDirections,
   levelTuning,
   scoreForFruit,
-  squaredDistance,
   tileKey,
   wrapTile,
   type Direction,
@@ -79,13 +87,36 @@ type GhostKillEffect = {
   duration: number;
 };
 
+type PickupBurst = {
+  x: number;
+  y: number;
+  timer: number;
+  duration: number;
+  color: string;
+  maxRadius: number;
+};
+
+type PickupJuice = {
+  timer: number;
+  duration: number;
+  amplitude: number;
+  flashColor: string;
+  flashSeconds: number;
+};
+
 type FloatingScore = {
   x: number;
   y: number;
   text: string;
   timer: number;
   duration: number;
+  color: string;
+  fontSize: number;
+  driftX: number;
+  fadeSpeed: number;
 };
+
+const SCORE_POPUP_FONT = config.render.scorePopupFontFamily;
 
 const GHOST_KILL_FREEZE_SECONDS = config.timing.ghostKillFreezeSeconds;
 const GHOST_KILL_SHAKE_SECONDS = config.timing.ghostKillShakeSeconds;
@@ -93,7 +124,6 @@ const GHOST_RESPAWN_WAIT_SECONDS = config.timing.ghostRespawnWaitSeconds;
 const PLAYER_DEATH_FREEZE_SECONDS = config.timing.playerDeathFreezeSeconds;
 const PLAYER_DEATH_SHAKE_SECONDS = config.timing.playerDeathShakeSeconds;
 const WALL_OUTLINE_COLOR = config.render.wallOutlineColor;
-const WALL_INNER_COLOR = config.render.wallInnerColor;
 const WALL_GLOW_COLOR = config.render.wallGlowColor;
 const GHOST_EXIT_TILE: TileCoord = config.movement.ghostExitTile;
 const PLAYER_SPRITE_SIZE = config.render.playerSpriteSize;
@@ -124,6 +154,17 @@ ctx.imageSmoothingEnabled = false;
 
 const msPacmanIdleImage = loadImage(msPacmanIdleUrl);
 const msPacmanChompImage = loadImage(msPacmanChompUrl);
+const eyesImage = loadImage(eyesUrl);
+const fruitImages: Partial<Record<string, HTMLImageElement>> = {
+  Cherry: loadImage(cherryUrl),
+  Strawberry: loadImage(strawberryUrl),
+};
+const vulnerableSprites = loadDirectionalSprites({
+  down: vulnerableDownUrl,
+  right: vulnerableRightUrl,
+  left: vulnerableLeftUrl,
+  up: vulnerableUpUrl,
+});
 const ghostSprites = loadGhostSprites({
   blinky: { down: blinkyDownUrl, right: blinkyRightUrl, left: blinkyLeftUrl, up: blinkyUpUrl },
   pinky: { down: pinkyDownUrl, right: pinkyRightUrl, left: pinkyLeftUrl, up: pinkyUpUrl },
@@ -190,6 +231,103 @@ function drawScaledSprite(
   );
 }
 
+function applyDirectionalSpriteTransform(direction: Direction): void {
+  if (direction === 'left') {
+    ctx.scale(-1, 1);
+    return;
+  }
+
+  if (direction === 'up') {
+    ctx.rotate(-Math.PI / 2);
+    return;
+  }
+
+  if (direction === 'down') {
+    ctx.rotate(Math.PI / 2);
+  }
+}
+
+function randomScorePopupColor(): string {
+  const colors = config.render.scorePopupColors;
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+function scorePopupVisuals(popup: FloatingScore): { scale: number; alpha: number; x: number; y: number } {
+  const elapsed = popup.duration - popup.timer;
+  const popT = Math.min(elapsed / config.render.scorePopupPopSeconds, 1);
+  const scale = 0.35 + popT * 0.65 + Math.sin(popT * Math.PI) * 0.22;
+  const fadeWindow = config.render.scorePopupFadeDurationRatio / popup.fadeSpeed;
+  const alpha = Math.min(1, popup.timer / (popup.duration * fadeWindow));
+  const drift = popup.driftX * Math.min(elapsed / popup.duration, 1);
+
+  return {
+    scale,
+    alpha,
+    x: popup.x + drift,
+    y: popup.y,
+  };
+}
+
+function drawScorePopupText(text: string, x: number, y: number, fontSize: number, color: string, scale: number, alpha: number): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = alpha;
+  ctx.font = `${fontSize}px ${SCORE_POPUP_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillText(text, 2, 3);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = 3;
+  ctx.strokeText(text, 0, 0);
+  ctx.fillStyle = color;
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+function drawCountdown(value: number, readyTimer: number): void {
+  const stepElapsed = readyTimer - (value - 1);
+  const popT = Math.min(stepElapsed / 0.22, 1);
+  const scale = 0.55 + popT * 0.45 + Math.sin(popT * Math.PI) * 0.18;
+  const fontSize = config.render.countdownFontSize;
+  const centerX = LOGICAL_WIDTH / 2;
+  const centerY = LOGICAL_HEIGHT / 2 + 42;
+
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.scale(scale, scale);
+  ctx.font = `${fontSize}px ${SCORE_POPUP_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const label = String(value);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillText(label, 2, 3);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = 4;
+  ctx.strokeText(label, 0, 0);
+  ctx.fillStyle = value === 1 ? '#ff79bd' : '#65d6ff';
+  ctx.fillText(label, 0, 0);
+  ctx.restore();
+}
+
+function drawLevelBanner(level: number): void {
+  ctx.save();
+  ctx.font = `${config.render.levelBannerFontSize}px ${SCORE_POPUP_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillText(`LEVEL ${level}`, LOGICAL_WIDTH / 2 + 2, LOGICAL_HEIGHT / 2 + 3);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = 3;
+  ctx.strokeText(`LEVEL ${level}`, LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+  ctx.fillStyle = '#ffe861';
+  ctx.fillText(`LEVEL ${level}`, LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+  ctx.restore();
+}
+
 function tileCenter(tile: TileCoord): { x: number; y: number } {
   return {
     x: tile.x * TILE_SIZE + TILE_SIZE / 2,
@@ -227,78 +365,21 @@ function makeActor(tile: TileCoord, speed: number, direction: Direction = 'left'
   };
 }
 
-function drawText(text: string, x: number, y: number, align: CanvasTextAlign = 'center'): void {
-  ctx.fillStyle = '#fff8c4';
-  ctx.font = '8px "Courier New", monospace';
-  ctx.textAlign = align;
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, x, y);
-}
-
-function getShakeOffset(timer: number, duration: number): { x: number; y: number } {
+function getShakeOffset(timer: number, duration: number, amplitude = config.shake.amplitude): { x: number; y: number } {
   if (timer <= 0) return { x: 0, y: 0 };
   const elapsed = duration - timer;
   const progress = Math.min(1, elapsed / duration);
-  const amplitude = config.shake.amplitude * (1 - progress);
+  const currentAmplitude = amplitude * (1 - progress);
   return {
-    x: Math.sin(elapsed * config.shake.xFrequency) * amplitude,
-    y: Math.cos(elapsed * config.shake.yFrequency) * amplitude * config.shake.yScale,
+    x: Math.sin(elapsed * config.shake.xFrequency) * currentAmplitude,
+    y: Math.cos(elapsed * config.shake.yFrequency) * currentAmplitude * config.shake.yScale,
   };
-}
-
-function drawRoundedWallRect(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radii: { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number },
-): void {
-  const topLeft = Math.min(radii.topLeft, width / 2, height / 2);
-  const topRight = Math.min(radii.topRight, width / 2, height / 2);
-  const bottomRight = Math.min(radii.bottomRight, width / 2, height / 2);
-  const bottomLeft = Math.min(radii.bottomLeft, width / 2, height / 2);
-
-  ctx.beginPath();
-  ctx.moveTo(x + topLeft, y);
-  ctx.lineTo(x + width - topRight, y);
-
-  if (topRight > 0) {
-    ctx.arc(x + width - topRight, y + topRight, topRight, -Math.PI / 2, 0);
-  } else {
-    ctx.lineTo(x + width, y);
-  }
-
-  ctx.lineTo(x + width, y + height - bottomRight);
-
-  if (bottomRight > 0) {
-    ctx.arc(x + width - bottomRight, y + height - bottomRight, bottomRight, 0, Math.PI / 2);
-  } else {
-    ctx.lineTo(x + width, y + height);
-  }
-
-  ctx.lineTo(x + bottomLeft, y + height);
-
-  if (bottomLeft > 0) {
-    ctx.arc(x + bottomLeft, y + height - bottomLeft, bottomLeft, Math.PI / 2, Math.PI);
-  } else {
-    ctx.lineTo(x, y + height);
-  }
-
-  ctx.lineTo(x, y + topLeft);
-
-  if (topLeft > 0) {
-    ctx.arc(x + topLeft, y + topLeft, topLeft, Math.PI, (3 * Math.PI) / 2);
-  } else {
-    ctx.lineTo(x, y);
-  }
-
-  ctx.closePath();
-  ctx.fill();
 }
 
 class ArcadeAudio {
   private audioContext: AudioContext | null = null;
   private muted = false;
+  private gameplaySfxBlocked = false;
 
   get isMuted(): boolean {
     return this.muted;
@@ -306,6 +387,10 @@ class ArcadeAudio {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
+  }
+
+  setGameplaySfxBlocked(blocked: boolean): void {
+    this.gameplaySfxBlocked = blocked;
   }
 
   beep(
@@ -325,6 +410,151 @@ class ArcadeAudio {
     volume.connect(this.audioContext.destination);
     oscillator.start();
     oscillator.stop(this.audioContext.currentTime + duration);
+  }
+
+  playGameplayBeep(
+    frequency: number,
+    duration = config.audio.defaultBeepDuration,
+    type: OscillatorType = 'square',
+    gain = config.audio.defaultBeepGain,
+  ): void {
+    if (this.muted || this.gameplaySfxBlocked) return;
+    this.beep(frequency, duration, type, gain);
+  }
+
+  playPellet(high: boolean): void {
+    if (this.muted || this.gameplaySfxBlocked) return;
+    this.audioContext ??= new AudioContext();
+    const pellet = config.audio.pellet;
+    const now = this.audioContext.currentTime;
+    const oscillator = this.audioContext.createOscillator();
+    const lowPass = this.audioContext.createBiquadFilter();
+    const volume = this.audioContext.createGain();
+    const frequency = pellet.baseFrequency + (high ? pellet.alternateFrequencyOffset : 0);
+
+    oscillator.type = pellet.type as OscillatorType;
+    oscillator.frequency.setValueAtTime(frequency, now);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(frequency * 0.82, 40), now + pellet.duration);
+    lowPass.type = 'lowpass';
+    lowPass.frequency.setValueAtTime(pellet.lowPassFrequency, now);
+    lowPass.Q.setValueAtTime(0.6, now);
+    volume.gain.setValueAtTime(0.0001, now);
+    volume.gain.exponentialRampToValueAtTime(pellet.gain, now + 0.012);
+    volume.gain.exponentialRampToValueAtTime(0.0001, now + pellet.duration);
+
+    oscillator.connect(lowPass);
+    lowPass.connect(volume);
+    volume.connect(this.audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + pellet.duration + 0.02);
+  }
+
+  playEyesRetreat(): void {
+    if (this.muted) return;
+    this.audioContext ??= new AudioContext();
+    const eyes = config.audio.eyesRetreat;
+    const now = this.audioContext.currentTime;
+    const oscillator = this.audioContext.createOscillator();
+    const lowPass = this.audioContext.createBiquadFilter();
+    const volume = this.audioContext.createGain();
+
+    oscillator.type = eyes.type as OscillatorType;
+    oscillator.frequency.setValueAtTime(eyes.startFrequency, now);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(eyes.endFrequency, 40), now + eyes.duration);
+    lowPass.type = 'lowpass';
+    lowPass.frequency.setValueAtTime(eyes.lowPassFrequency, now);
+    lowPass.Q.setValueAtTime(0.5, now);
+    volume.gain.setValueAtTime(0.0001, now);
+    volume.gain.exponentialRampToValueAtTime(eyes.gain, now + 0.008);
+    volume.gain.exponentialRampToValueAtTime(0.0001, now + eyes.duration);
+
+    oscillator.connect(lowPass);
+    lowPass.connect(volume);
+    volume.connect(this.audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + eyes.duration + 0.02);
+  }
+
+  playChomp(high: boolean): void {
+    if (this.muted || this.gameplaySfxBlocked) return;
+    this.audioContext ??= new AudioContext();
+    const chomp = config.audio.chomp;
+    const now = this.audioContext.currentTime;
+    const oscillator = this.audioContext.createOscillator();
+    const volume = this.audioContext.createGain();
+    const startFrequency = high ? chomp.highFrequency : chomp.lowFrequency;
+    const endFrequency = startFrequency * 0.68;
+
+    oscillator.type = chomp.type as OscillatorType;
+    oscillator.frequency.setValueAtTime(startFrequency, now);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(endFrequency, 40), now + chomp.duration);
+    volume.gain.setValueAtTime(0.0001, now);
+    volume.gain.exponentialRampToValueAtTime(chomp.gain, now + 0.004);
+    volume.gain.exponentialRampToValueAtTime(0.0001, now + chomp.duration);
+
+    oscillator.connect(volume);
+    volume.connect(this.audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + chomp.duration + 0.01);
+  }
+
+  playPickupJuice(kind: 'powerPellet' | 'cherry'): void {
+    if (this.muted || this.gameplaySfxBlocked) return;
+    this.audioContext ??= new AudioContext();
+    const now = this.audioContext.currentTime;
+
+    if (kind === 'powerPellet') {
+      this.scheduleTone(now, 110, 0.24, 'sawtooth', 0.038);
+      this.scheduleSweep(now + 0.03, 520, 920, 0.12, 'sine', 0.028);
+      this.scheduleSweep(now + 0.08, 760, 1180, 0.1, 'triangle', 0.022);
+      return;
+    }
+
+    this.scheduleTone(now, 760, 0.12, 'triangle', 0.042);
+    this.scheduleSweep(now + 0.04, 880, 1320, 0.11, 'sine', 0.03);
+    this.scheduleTone(now + 0.1, 1040, 0.08, 'square', 0.018);
+  }
+
+  private scheduleTone(
+    startTime: number,
+    frequency: number,
+    duration: number,
+    type: OscillatorType,
+    gain: number,
+  ): void {
+    const oscillator = this.audioContext!.createOscillator();
+    const volume = this.audioContext!.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+    volume.gain.setValueAtTime(0.0001, startTime);
+    volume.gain.exponentialRampToValueAtTime(gain, startTime + 0.006);
+    volume.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    oscillator.connect(volume);
+    volume.connect(this.audioContext!.destination);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + duration + 0.01);
+  }
+
+  private scheduleSweep(
+    startTime: number,
+    startFrequency: number,
+    endFrequency: number,
+    duration: number,
+    type: OscillatorType,
+    gain: number,
+  ): void {
+    const oscillator = this.audioContext!.createOscillator();
+    const volume = this.audioContext!.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(startFrequency, startTime);
+    oscillator.frequency.exponentialRampToValueAtTime(endFrequency, startTime + duration);
+    volume.gain.setValueAtTime(0.0001, startTime);
+    volume.gain.exponentialRampToValueAtTime(gain, startTime + 0.005);
+    volume.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    oscillator.connect(volume);
+    volume.connect(this.audioContext!.destination);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + duration + 0.01);
   }
 }
 
@@ -354,6 +584,10 @@ class MsPacmanGame {
   private playerDeathFlashTimer = 0;
   private playerDeathShakeTimer = 0;
   private floatingScores: FloatingScore[] = [];
+  private pickupBursts: PickupBurst[] = [];
+  private pickupJuice: PickupJuice | null = null;
+  private lastChompTick = -1;
+  private lastCountdownTick = 0;
   private fruitSpawnedAt = new Set<number>();
   private requestedDirection: Direction = 'left';
   private lastFrame = 0;
@@ -442,7 +676,15 @@ class MsPacmanGame {
   private update(delta: number): void {
     if (this.status === 'ready') {
       this.readyTimer -= delta;
-      if (this.readyTimer <= 0) this.status = 'playing';
+      const countdownValue = Math.max(1, Math.ceil(this.readyTimer));
+      if (countdownValue !== this.lastCountdownTick) {
+        this.lastCountdownTick = countdownValue;
+        this.audio.beep(280 + countdownValue * 120, 0.09, 'sine', 0.022);
+      }
+      if (this.readyTimer <= 0) {
+        this.status = 'playing';
+        this.lastCountdownTick = 0;
+      }
       this.showOverlays();
       return;
     }
@@ -457,7 +699,8 @@ class MsPacmanGame {
         } else {
           this.resetActorsOnly();
           this.status = 'ready';
-          this.readyTimer = config.timing.lifeRestartReadySeconds;
+          this.readyTimer = config.timing.countdownSeconds;
+          this.lastCountdownTick = 0;
         }
       }
       return;
@@ -477,21 +720,31 @@ class MsPacmanGame {
     if (this.ghostKillFreezeTimer > 0) {
       this.ghostKillFreezeTimer = Math.max(0, this.ghostKillFreezeTimer - delta);
       this.ghostKillShakeTimer = Math.max(0, this.ghostKillShakeTimer - delta);
+      this.updateEyesRetreatSfx();
       this.updateGhostKillEffects(delta);
+      this.updateGhosts(delta);
+      this.updatePickupJuice(delta);
+      this.updateFloatingScores(delta);
+      this.checkCollisions();
       this.updateHud();
       return;
     }
 
     this.updateGhostKillEffects(delta);
     this.ghostKillShakeTimer = Math.max(0, this.ghostKillShakeTimer - delta);
+    this.updateEyesRetreatSfx();
 
     const tuning = levelTuning(this.level);
-    this.player.speed = tuning.playerSpeed;
+    const playerSpeedMultiplier =
+      this.frightenedTimer > 0 ? config.levelTuning.powerPelletPlayerSpeedMultiplier : 1;
+    this.player.speed = tuning.playerSpeed * playerSpeedMultiplier;
     this.updateModeTimers(delta);
     this.movePlayer(delta);
+    this.updatePlayerChompSound();
     this.updateGhosts(delta);
     this.updateFruit(delta);
     this.collectPellets();
+    this.updatePickupJuice(delta);
     this.updateFloatingScores(delta);
     this.checkCollisions();
     this.updateHud();
@@ -513,7 +766,7 @@ class MsPacmanGame {
       this.currentGhostMode = this.currentGhostMode === 'scatter' ? 'chase' : 'scatter';
       this.modeTimer = this.currentGhostMode === 'scatter' ? config.timing.scatterSeconds : config.timing.chaseSeconds;
       for (const ghost of this.ghosts) {
-        if (ghost.mode === 'scatter' || ghost.mode === 'chase' || ghost.mode === 'frightened') {
+        if (ghost.mode === 'scatter' || ghost.mode === 'chase') {
           ghost.direction = OPPOSITE[ghost.direction];
           ghost.mode = this.currentGhostMode;
         }
@@ -527,8 +780,9 @@ class MsPacmanGame {
     this.modeTimer = config.timing.initialScatterSeconds;
     this.frightenedTimer = 0;
     this.ghostChain = 0;
-    this.readyTimer = config.timing.readySeconds;
+    this.readyTimer = config.timing.countdownSeconds;
     this.status = 'ready';
+    this.lastCountdownTick = 0;
     this.fruit = null;
     this.fruitSpawnedAt.clear();
     this.ghostKillEffects.clear();
@@ -560,6 +814,9 @@ class MsPacmanGame {
     ];
     this.frightenedTimer = 0;
     this.floatingScores = [];
+    this.pickupBursts = [];
+    this.pickupJuice = null;
+    this.lastChompTick = -1;
     this.ghostKillEffects.clear();
     this.ghostKillFreezeTimer = 0;
     this.ghostKillShakeTimer = 0;
@@ -590,8 +847,6 @@ class MsPacmanGame {
     const blinky = this.ghosts.find((ghost) => ghost.id === 'blinky') ?? this.ghosts[0];
 
     for (const ghost of this.ghosts) {
-      if (ghost.mode === 'eatenFlash') continue;
-
       if (ghost.mode === 'respawning') {
         ghost.releaseDelay = Math.max(0, ghost.releaseDelay - delta);
         if (ghost.releaseDelay > 0) continue;
@@ -600,32 +855,28 @@ class MsPacmanGame {
         ghost.direction = 'left';
       }
 
-      ghost.releaseDelay = Math.max(0, ghost.releaseDelay - delta);
-      if (ghost.releaseDelay > 0 && ghost.id !== 'blinky') continue;
-
-      if (ghost.mode === 'eyes' && squaredDistance(ghost.tile, ghost.home) <= 1) {
-        ghost.tile = { ...ghost.home };
-        ghost.pixel = tileCenter(ghost.home);
-        ghost.direction = 'none';
-        ghost.mode = 'respawning';
-        ghost.releaseDelay = GHOST_RESPAWN_WAIT_SECONDS;
+      if (ghost.mode === 'eyes') {
+        this.moveGhostEyes(ghost, delta, tuning.eyesSpeed * config.levelTuning.eyesSpeedMultiplier);
         continue;
       }
 
+      if (this.ghostKillFreezeTimer > 0) continue;
+
+      ghost.releaseDelay = Math.max(0, ghost.releaseDelay - delta);
+      if (ghost.releaseDelay > 0 && ghost.id !== 'blinky') continue;
+
       const speed =
-        ghost.mode === 'eyes'
-          ? tuning.eyesSpeed
-          : ghost.mode === 'frightened'
-            ? tuning.frightenedSpeed
-            : tuning.ghostSpeed +
-              (ghost.id === 'blinky' && this.pellets.size < config.movement.blinkyElroyPelletThreshold
-                ? config.movement.blinkyElroySpeedBonus
-                : 0);
+        ghost.mode === 'frightened'
+          ? tuning.frightenedSpeed
+          : tuning.ghostSpeed +
+            (ghost.id === 'blinky' && this.pellets.size < config.movement.blinkyElroyPelletThreshold
+              ? config.movement.blinkyElroySpeedBonus
+              : 0);
 
       this.moveActor(ghost, delta, speed, false, (actor, tile) => {
         const currentGhost = actor as Ghost;
 
-        if (currentGhost.mode !== 'eyes' && this.isGhostInSpawnArea(tile)) {
+        if (this.isGhostInSpawnArea(tile)) {
           currentGhost.direction = chooseDirectionToward(this.maze, tile, currentGhost.direction, GHOST_EXIT_TILE, true);
           return;
         }
@@ -636,34 +887,69 @@ class MsPacmanGame {
         }
 
         const target =
-          currentGhost.mode === 'eyes'
-            ? currentGhost.home
-            : this.currentGhostMode === 'scatter'
-              ? this.maze.scatterTargets[currentGhost.id]
-              : getGhostTarget(currentGhost, this.player, blinky.tile, this.maze.scatterTargets);
+          this.currentGhostMode === 'scatter'
+            ? this.maze.scatterTargets[currentGhost.id]
+            : getGhostTarget(currentGhost, this.player, blinky.tile, this.maze.scatterTargets);
 
         currentGhost.direction = chooseDirectionToward(
           this.maze,
           tile,
           currentGhost.direction,
           target,
-          currentGhost.mode === 'eyes',
+          false,
         );
       });
     }
   }
 
+  private moveGhostEyes(ghost: Ghost, delta: number, speed: number): void {
+    if (ghost.tile.x === ghost.home.x && ghost.tile.y === ghost.home.y) {
+      ghost.pixel = tileCenter(ghost.home);
+      ghost.direction = 'none';
+      ghost.mode = 'respawning';
+      ghost.releaseDelay = GHOST_RESPAWN_WAIT_SECONDS;
+      return;
+    }
+
+    const startTile = { ...ghost.tile };
+    this.moveActor(ghost, delta, speed, false, (actor, tile) => {
+      const currentGhost = actor as Ghost;
+      currentGhost.direction = chooseDirectionOnShortestPath(
+        this.maze,
+        tile,
+        currentGhost.direction,
+        currentGhost.home,
+        true,
+      );
+    });
+
+    if (startTile.x === ghost.tile.x && startTile.y === ghost.tile.y) return;
+
+    const enteredSpawnArea =
+      !this.isGhostInSpawnArea(startTile) && this.isGhostInSpawnArea(ghost.tile);
+    const stillOutsideSpawnArea = ghost.mode === 'eyes' && !this.isGhostInSpawnArea(ghost.tile);
+
+    if (stillOutsideSpawnArea || enteredSpawnArea) {
+      this.audio.playEyesRetreat();
+    }
+  }
+
+  private isEyesRetreatBlockingSfx(): boolean {
+    return this.ghosts.some(
+      (ghost) => ghost.mode === 'eyes' && !this.isGhostInSpawnArea(ghost.tile),
+    );
+  }
+
+  private updateEyesRetreatSfx(): void {
+    this.audio.setGameplaySfxBlocked(this.isEyesRetreatBlockingSfx());
+  }
+
   private updateGhostKillEffects(delta: number): void {
     for (const [ghostId, effect] of this.ghostKillEffects) {
       effect.timer = Math.max(0, effect.timer - delta);
-      if (effect.timer > 0) continue;
-
-      const ghost = this.ghosts.find((candidate) => candidate.id === ghostId);
-      if (ghost && ghost.mode === 'eatenFlash') {
-        ghost.mode = 'eyes';
+      if (effect.timer <= 0) {
+        this.ghostKillEffects.delete(ghostId);
       }
-
-      this.ghostKillEffects.delete(ghostId);
     }
   }
 
@@ -726,9 +1012,7 @@ class MsPacmanGame {
   }
 
   private isLegalPlayerTile(tile: TileCoord): boolean {
-    const area = config.movement.playerBlockedArea;
-    const inGhostHouse = tile.x >= area.minX && tile.x <= area.maxX && tile.y >= area.minY && tile.y <= area.maxY;
-    return !inGhostHouse && isPassable(this.maze, tile);
+    return isPlayerPassable(this.maze, tile);
   }
 
   private isGhostInSpawnArea(tile: TileCoord): boolean {
@@ -740,18 +1024,19 @@ class MsPacmanGame {
     const key = tileKey(this.player.tile);
     if (this.pellets.delete(key)) {
       this.addScore(config.scoring.pellet);
-      this.spawnScorePopup(config.scoring.pellet);
+      this.spawnScorePopup(config.scoring.pellet, tileCenter(this.player.tile), {
+        fadeSpeed: config.render.scorePopupPelletFadeSpeed,
+      });
       this.pelletsEaten += 1;
-      this.audio.beep(
-        config.audio.pellet.baseFrequency + (this.pelletsEaten % 2) * config.audio.pellet.alternateFrequencyOffset,
-        config.audio.pellet.duration,
-        config.audio.pellet.type as OscillatorType,
-        config.audio.pellet.gain,
-      );
+      this.audio.playPellet(this.pelletsEaten % 2 === 0);
     }
 
     if (this.powerPellets.delete(key)) {
       this.addScore(config.scoring.powerPellet);
+      this.spawnScorePopup(config.scoring.powerPellet, tileCenter(this.player.tile), {
+        fadeSpeed: config.render.scorePopupPelletFadeSpeed,
+      });
+      this.triggerPickupJuice('powerPellet', this.player.pixel.x, this.player.pixel.y);
       this.pelletsEaten += 1;
       this.triggerFrightened();
     }
@@ -760,7 +1045,7 @@ class MsPacmanGame {
 
     if (this.pellets.size === 0 && this.powerPellets.size === 0) {
       this.status = 'levelClear';
-      this.stateTimer = config.timing.readySeconds;
+      this.stateTimer = config.timing.levelClearFlashSeconds;
       this.audio.beep(
         config.audio.levelClear.frequency,
         config.audio.levelClear.duration,
@@ -770,14 +1055,26 @@ class MsPacmanGame {
     }
   }
 
-  private spawnScorePopup(points: number): void {
-    const center = tileCenter(this.player.tile);
+  private spawnScorePopup(
+    points: number,
+    position: { x: number; y: number } = tileCenter(this.player.tile),
+    options: { fadeSpeed?: number } = {},
+  ): void {
+    const fontSize =
+      points >= config.scoring.ghostChain[0]
+        ? config.render.ghostScorePopupFontSize
+        : config.render.scorePopupFontSize;
+
     this.floatingScores.push({
-      x: center.x,
-      y: center.y,
+      x: position.x,
+      y: position.y,
       text: String(points),
       timer: config.render.scorePopupDuration,
       duration: config.render.scorePopupDuration,
+      color: randomScorePopupColor(),
+      fontSize,
+      driftX: (Math.random() - 0.5) * 16,
+      fadeSpeed: options.fadeSpeed ?? 1,
     });
   }
 
@@ -802,12 +1099,52 @@ class MsPacmanGame {
         ghost.mode = 'frightened';
       }
     }
-    this.audio.beep(
-      config.audio.powerPellet.frequency,
-      config.audio.powerPellet.duration,
-      config.audio.powerPellet.type as OscillatorType,
-      config.audio.powerPellet.gain,
-    );
+  }
+
+  private triggerPickupJuice(kind: 'powerPellet' | 'cherry', x: number, y: number): void {
+    const juice = config.juice[kind];
+    this.pickupJuice = {
+      timer: juice.shakeSeconds,
+      duration: juice.shakeSeconds,
+      amplitude: juice.shakeAmplitude,
+      flashColor: juice.flashColor,
+      flashSeconds: juice.flashSeconds,
+    };
+    this.pickupBursts.push({
+      x,
+      y,
+      timer: juice.burstSeconds,
+      duration: juice.burstSeconds,
+      color: juice.burstColor,
+      maxRadius: juice.burstMaxRadius,
+    });
+    this.audio.playPickupJuice(kind);
+  }
+
+  private updatePickupJuice(delta: number): void {
+    if (this.pickupJuice) {
+      this.pickupJuice.timer = Math.max(0, this.pickupJuice.timer - delta);
+      if (this.pickupJuice.timer <= 0) {
+        this.pickupJuice = null;
+      }
+    }
+
+    this.pickupBursts = this.pickupBursts
+      .map((burst) => ({ ...burst, timer: burst.timer - delta }))
+      .filter((burst) => burst.timer > 0);
+  }
+
+  private updatePlayerChompSound(): void {
+    if (this.player.direction === 'none') {
+      this.lastChompTick = -1;
+      return;
+    }
+
+    const tick = Math.floor(performance.now() / config.timing.playerAnimationFrameMs);
+    if (tick === this.lastChompTick) return;
+
+    this.lastChompTick = tick;
+    this.audio.playChomp(tick % 2 === 0);
   }
 
   private maybeSpawnFruit(): void {
@@ -863,9 +1200,11 @@ class MsPacmanGame {
 
       if (ghost.mode === 'frightened') {
         const scores = config.scoring.ghostChain;
-        this.addScore(scores[Math.min(this.ghostChain, scores.length - 1)]);
+        const points = scores[Math.min(this.ghostChain, scores.length - 1)];
+        this.addScore(points);
+        this.spawnScorePopup(points, { x: ghost.pixel.x, y: ghost.pixel.y });
         this.ghostChain += 1;
-        ghost.mode = 'eatenFlash';
+        ghost.mode = 'eyes';
         ghost.direction = OPPOSITE[ghost.direction];
         this.ghostKillFreezeTimer = GHOST_KILL_FREEZE_SECONDS;
         this.ghostKillShakeTimer = GHOST_KILL_SHAKE_SECONDS;
@@ -879,7 +1218,10 @@ class MsPacmanGame {
           config.audio.ghostEaten.type as OscillatorType,
           config.audio.ghostEaten.gain,
         );
-      } else if (ghost.mode !== 'eyes' && ghost.mode !== 'eatenFlash' && ghost.mode !== 'respawning') {
+        if (!this.isGhostInSpawnArea(ghost.tile)) {
+          this.audio.playEyesRetreat();
+        }
+      } else if (ghost.mode !== 'eyes' && ghost.mode !== 'respawning') {
         this.loseLife();
         return;
       }
@@ -891,12 +1233,8 @@ class MsPacmanGame {
         config.collision.fruitRadius
     ) {
       this.addScore(this.fruit.points);
-      this.audio.beep(
-        config.audio.fruitEaten.frequency,
-        config.audio.fruitEaten.duration,
-        config.audio.fruitEaten.type as OscillatorType,
-        config.audio.fruitEaten.gain,
-      );
+      this.spawnScorePopup(this.fruit.points, { x: this.fruit.pixel.x, y: this.fruit.pixel.y });
+      this.triggerPickupJuice('cherry', this.fruit.pixel.x, this.fruit.pixel.y);
       this.fruit.active = false;
     }
   }
@@ -947,16 +1285,9 @@ class MsPacmanGame {
   }
 
   private showOverlays(): void {
-    menuOverlay.classList.toggle('hidden', this.status !== 'menu' && this.status !== 'ready');
+    menuOverlay.classList.toggle('hidden', this.status !== 'menu');
     pauseOverlay.classList.toggle('hidden', this.status !== 'paused');
     gameOverOverlay.classList.toggle('hidden', this.status !== 'gameOver');
-    if (this.status === 'ready') {
-      menuOverlay.querySelector('.prompt-title')!.textContent = 'READY!';
-      playBtn.classList.add('hidden');
-    } else {
-      menuOverlay.querySelector('.prompt-title')!.textContent = 'READY!';
-      playBtn.classList.remove('hidden');
-    }
   }
 
   private render(): void {
@@ -964,78 +1295,179 @@ class MsPacmanGame {
     ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     const ghostShake = getShakeOffset(this.ghostKillShakeTimer, GHOST_KILL_SHAKE_SECONDS);
     const playerShake = getShakeOffset(this.playerDeathShakeTimer, PLAYER_DEATH_SHAKE_SECONDS);
+    const pickupShake = this.pickupJuice
+      ? getShakeOffset(this.pickupJuice.timer, this.pickupJuice.duration, this.pickupJuice.amplitude)
+      : { x: 0, y: 0 };
 
     ctx.save();
-    ctx.translate(ghostShake.x + playerShake.x, ghostShake.y + playerShake.y);
+    ctx.translate(
+      ghostShake.x + playerShake.x + pickupShake.x,
+      ghostShake.y + playerShake.y + pickupShake.y,
+    );
     this.drawMaze();
     this.drawPellets();
     if (this.fruit?.active) this.drawFruit(this.fruit);
     for (const ghost of this.ghosts) this.drawGhostSprite(ghost);
     this.drawPlayer();
+    this.drawPickupBursts();
     this.drawFloatingScores();
 
-    if (this.status === 'ready') drawText('READY!', LOGICAL_WIDTH / 2, HUD_HEIGHT + 17 * TILE_SIZE, 'center');
-    if (this.status === 'levelClear') drawText('LEVEL CLEAR', LOGICAL_WIDTH / 2, HUD_HEIGHT + 17 * TILE_SIZE, 'center');
+    if (this.status === 'ready') {
+      drawLevelBanner(this.level);
+      drawCountdown(Math.max(1, Math.ceil(this.readyTimer)), this.readyTimer);
+    }
+    ctx.restore();
+
+    this.drawPickupFlash();
+    this.drawLevelClearFlash();
+  }
+
+  private drawLevelClearFlash(): void {
+    if (this.status !== 'levelClear') return;
+
+    const total = config.timing.levelClearFlashSeconds;
+    const count = config.timing.levelClearFlashCount;
+    const elapsed = total - this.stateTimer;
+    const segmentDuration = total / (count * 2);
+    const segment = Math.floor(elapsed / segmentDuration);
+
+    if (segment >= count * 2) return;
+    if (segment % 2 === 1) return;
+
+    const segmentProgress = (elapsed % segmentDuration) / segmentDuration;
+    const alpha = (1 - segmentProgress) * 0.42;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#fff8c4';
+    ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+    ctx.restore();
+  }
+
+  private drawPickupBursts(): void {
+    for (const burst of this.pickupBursts) {
+      const progress = 1 - burst.timer / burst.duration;
+      const radius = burst.maxRadius * progress;
+      const alpha = (1 - progress) * 0.75;
+
+      ctx.save();
+      ctx.strokeStyle = burst.color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 3 + (1 - progress) * 2;
+      ctx.beginPath();
+      ctx.arc(burst.x, burst.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = burst.color;
+      ctx.globalAlpha = alpha * 0.18;
+      ctx.beginPath();
+      ctx.arc(burst.x, burst.y, radius * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  private drawPickupFlash(): void {
+    if (!this.pickupJuice) return;
+
+    const flashElapsed = this.pickupJuice.duration - this.pickupJuice.timer;
+    const flashProgress = flashElapsed / this.pickupJuice.flashSeconds;
+    if (flashProgress >= 1) return;
+
+    ctx.save();
+    ctx.globalAlpha = (1 - flashProgress) * 0.85;
+    ctx.fillStyle = this.pickupJuice.flashColor;
+    ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     ctx.restore();
   }
 
   private drawMaze(): void {
     ctx.save();
     ctx.shadowColor = WALL_GLOW_COLOR;
-    ctx.shadowBlur = 5;
-    ctx.fillStyle = WALL_OUTLINE_COLOR;
-    for (let y = 0; y < GRID_HEIGHT; y += 1) {
-      for (let x = 0; x < GRID_WIDTH; x += 1) {
-        if (this.maze.passable[y][x]) continue;
-        const px = x * TILE_SIZE;
-        const py = y * TILE_SIZE + HUD_HEIGHT;
-        drawRoundedWallRect(px, py, TILE_SIZE, TILE_SIZE, this.getWallCornerRadii(x, y, config.render.wallOuterCornerRadius));
-      }
-    }
+    ctx.shadowBlur = 3;
+    this.drawWallOutlines();
     ctx.restore();
+  }
 
-    ctx.save();
-    ctx.shadowColor = config.render.wallInnerGlowColor;
-    ctx.shadowBlur = 2;
-    ctx.fillStyle = WALL_INNER_COLOR;
+  private drawWallOutlines(): void {
+    const thickness = config.render.wallShellOutlineWidth;
+    const radius = config.render.wallOuterCornerRadius;
+    ctx.fillStyle = WALL_OUTLINE_COLOR;
+
     for (let y = 0; y < GRID_HEIGHT; y += 1) {
       for (let x = 0; x < GRID_WIDTH; x += 1) {
         if (!this.isWallTile(x, y)) continue;
 
-        const inset = config.render.wallInset;
-        const leftInset = this.isWallTile(x - 1, y) ? 0 : inset;
-        const rightInset = this.isWallTile(x + 1, y) ? 0 : inset;
-        const topInset = this.isWallTile(x, y - 1) ? 0 : inset;
-        const bottomInset = this.isWallTile(x, y + 1) ? 0 : inset;
-        const px = x * TILE_SIZE + leftInset;
-        const py = y * TILE_SIZE + HUD_HEIGHT + topInset;
-        const width = TILE_SIZE - leftInset - rightInset;
-        const height = TILE_SIZE - topInset - bottomInset;
+        const px = x * TILE_SIZE;
+        const py = y * TILE_SIZE + HUD_HEIGHT;
+        const leftOpen = !this.isWallTile(x - 1, y);
+        const rightOpen = !this.isWallTile(x + 1, y);
+        const topOpen = !this.isWallTile(x, y - 1);
+        const bottomOpen = !this.isWallTile(x, y + 1);
 
-        if (width > 0 && height > 0) {
-          drawRoundedWallRect(px, py, width, height, this.getWallCornerRadii(x, y, config.render.wallInnerCornerRadius));
+        const roundTopLeft = topOpen && leftOpen && this.isOuterWallCorner(x - 1, y, x, y - 1, x - 1, y - 1);
+        const roundTopRight = topOpen && rightOpen && this.isOuterWallCorner(x + 1, y, x, y - 1, x + 1, y - 1);
+        const roundBottomRight =
+          bottomOpen && rightOpen && this.isOuterWallCorner(x + 1, y, x, y + 1, x + 1, y + 1);
+        const roundBottomLeft =
+          bottomOpen && leftOpen && this.isOuterWallCorner(x - 1, y, x, y + 1, x - 1, y + 1);
+
+        if (topOpen) {
+          const startX = px + (roundTopLeft ? radius : 0);
+          const endX = px + TILE_SIZE - (roundTopRight ? radius : 0);
+          ctx.fillRect(startX, py, endX - startX, thickness);
+        }
+
+        if (bottomOpen) {
+          const startX = px + (roundBottomLeft ? radius : 0);
+          const endX = px + TILE_SIZE - (roundBottomRight ? radius : 0);
+          ctx.fillRect(startX, py + TILE_SIZE - thickness, endX - startX, thickness);
+        }
+
+        if (leftOpen) {
+          const startY = py + (roundTopLeft ? radius : 0);
+          const endY = py + TILE_SIZE - (roundBottomLeft ? radius : 0);
+          ctx.fillRect(px, startY, thickness, endY - startY);
+        }
+
+        if (rightOpen) {
+          const startY = py + (roundTopRight ? radius : 0);
+          const endY = py + TILE_SIZE - (roundBottomRight ? radius : 0);
+          ctx.fillRect(px + TILE_SIZE - thickness, startY, thickness, endY - startY);
+        }
+
+        if (roundTopLeft) {
+          this.fillWallCornerArc(px + radius, py + radius, radius, thickness, Math.PI, (3 * Math.PI) / 2);
+        }
+        if (roundTopRight) {
+          this.fillWallCornerArc(px + TILE_SIZE - radius, py + radius, radius, thickness, (3 * Math.PI) / 2, 0);
+        }
+        if (roundBottomRight) {
+          this.fillWallCornerArc(px + TILE_SIZE - radius, py + TILE_SIZE - radius, radius, thickness, 0, Math.PI / 2);
+        }
+        if (roundBottomLeft) {
+          this.fillWallCornerArc(px + radius, py + TILE_SIZE - radius, radius, thickness, Math.PI / 2, Math.PI);
         }
       }
     }
-    ctx.restore();
+  }
 
+  private fillWallCornerArc(
+    centerX: number,
+    centerY: number,
+    radius: number,
+    thickness: number,
+    startAngle: number,
+    endAngle: number,
+  ): void {
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+    ctx.arc(centerX, centerY, Math.max(0, radius - thickness), endAngle, startAngle, true);
+    ctx.closePath();
+    ctx.fill();
   }
 
   private isWallTile(x: number, y: number): boolean {
     return x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT && !this.maze.passable[y][x];
-  }
-
-  private getWallCornerRadii(
-    x: number,
-    y: number,
-    radius: number,
-  ): { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number } {
-    return {
-      topLeft: this.isOuterWallCorner(x - 1, y, x, y - 1, x - 1, y - 1) ? radius : 0,
-      topRight: this.isOuterWallCorner(x + 1, y, x, y - 1, x + 1, y - 1) ? radius : 0,
-      bottomRight: this.isOuterWallCorner(x + 1, y, x, y + 1, x + 1, y + 1) ? radius : 0,
-      bottomLeft: this.isOuterWallCorner(x - 1, y, x, y + 1, x - 1, y + 1) ? radius : 0,
-    };
   }
 
   private isOuterWallCorner(
@@ -1085,15 +1517,8 @@ class MsPacmanGame {
 
   private drawFloatingScores(): void {
     for (const popup of this.floatingScores) {
-      const alpha = Math.min(1, popup.timer / (popup.duration * 0.35));
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = config.render.scorePopupColor;
-      ctx.font = `${config.render.scorePopupFontSize}px "Courier New", monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(popup.text, popup.x, popup.y);
-      ctx.restore();
+      const visuals = scorePopupVisuals(popup);
+      drawScorePopupText(popup.text, visuals.x, visuals.y, popup.fontSize, popup.color, visuals.scale, visuals.alpha);
     }
   }
 
@@ -1106,6 +1531,8 @@ class MsPacmanGame {
     const deathFlashOn =
       this.playerDeathFlashTimer > 0 &&
       Math.floor((PLAYER_DEATH_FREEZE_SECONDS - this.playerDeathFlashTimer) / config.timing.flashIntervalSeconds) % 2 === 0;
+    const pickupFlashOn =
+      this.pickupJuice !== null && this.pickupJuice.duration - this.pickupJuice.timer < 0.12;
 
     if (!sprite.complete || sprite.naturalWidth === 0) {
       return;
@@ -1113,59 +1540,92 @@ class MsPacmanGame {
 
     ctx.save();
     ctx.translate(this.player.pixel.x, this.player.pixel.y);
-    this.applyPlayerSpriteTransform();
-    ctx.filter = deathFlashOn ? config.render.deathFlashFilter : 'none';
+    applyDirectionalSpriteTransform(this.player.direction);
+    ctx.filter = deathFlashOn
+      ? config.render.deathFlashFilter
+      : pickupFlashOn
+        ? 'brightness(1.85) saturate(1.35)'
+        : 'none';
     drawScaledSprite(sprite, 0, 0, PLAYER_SPRITE_SIZE, config.render.playerScale);
     ctx.restore();
   }
 
-  private applyPlayerSpriteTransform(): void {
-    if (this.player.direction === 'left') {
-      ctx.scale(-1, 1);
-      return;
-    }
-
-    if (this.player.direction === 'up') {
-      ctx.rotate(-Math.PI / 2);
-      return;
-    }
-
-    if (this.player.direction === 'down') {
-      ctx.rotate(Math.PI / 2);
-    }
-  }
-
   private drawGhostSprite(ghost: Ghost): void {
+    if (ghost.mode === 'eyes') {
+      if (!eyesImage.complete || eyesImage.naturalWidth === 0) {
+        return;
+      }
+
+      const killEffect = this.ghostKillEffects.get(ghost.id);
+      const killFlashOn = killEffect
+        ? Math.floor((killEffect.duration - killEffect.timer) / config.timing.flashIntervalSeconds) % 2 === 0
+        : false;
+
+      ctx.save();
+      ctx.filter = killFlashOn ? 'brightness(3) saturate(0)' : 'none';
+      drawScaledSprite(
+        eyesImage,
+        ghost.pixel.x,
+        ghost.pixel.y,
+        config.render.ghostSpriteSize,
+        config.render.ghostScale * config.render.eyesScale,
+      );
+      ctx.restore();
+      return;
+    }
+
     const direction = ghost.direction === 'none' ? 'down' : ghost.direction;
+
+    if (ghost.mode === 'frightened') {
+      const sprite = vulnerableSprites[direction];
+      if (!sprite.complete || sprite.naturalWidth === 0) {
+        return;
+      }
+
+      const frightenedFlashOn =
+        this.frightenedTimer < 2 &&
+        Math.floor(performance.now() / config.timing.frightenedFlashMs) % 2 === 0;
+
+      ctx.save();
+      ctx.filter = frightenedFlashOn ? config.render.frightenedGhostFlashFilter : 'none';
+      drawScaledSprite(sprite, ghost.pixel.x, ghost.pixel.y, config.render.ghostSpriteSize, config.render.ghostScale);
+      ctx.restore();
+      return;
+    }
+
     const sprite = ghostSprites[ghost.id][direction];
     if (!sprite.complete || sprite.naturalWidth === 0) {
       return;
     }
 
-    const frightenedFlashOn =
-      ghost.mode === 'frightened' &&
-      Math.floor(performance.now() / config.timing.frightenedFlashMs) % 2 === 0;
-    const killEffect = this.ghostKillEffects.get(ghost.id);
-    const killFlashOn = killEffect
-      ? Math.floor((killEffect.duration - killEffect.timer) / config.timing.flashIntervalSeconds) % 2 === 0
-      : false;
-
-    let filter = 'none';
-    if (ghost.mode === 'eyes') {
-      filter = 'brightness(3) saturate(0)';
-    } else if (ghost.mode === 'eatenFlash') {
-      filter = killFlashOn ? 'brightness(3) saturate(0)' : 'hue-rotate(200deg) saturate(2.5) brightness(0.9)';
-    } else if (ghost.mode === 'frightened') {
-      filter = frightenedFlashOn ? config.render.frightenedGhostFlashFilter : config.render.frightenedGhostFilter;
-    }
-
     ctx.save();
-    ctx.filter = filter;
     drawScaledSprite(sprite, ghost.pixel.x, ghost.pixel.y, config.render.ghostSpriteSize, config.render.ghostScale);
     ctx.restore();
   }
 
+  private getFruitScale(name: string): number {
+    const multipliers: Partial<Record<string, number>> = {
+      Cherry: config.render.cherryScaleMultiplier,
+      Strawberry: config.render.strawberryScaleMultiplier,
+    };
+    return config.render.fruitScale * (multipliers[name] ?? 1);
+  }
+
   private drawFruit(fruit: Fruit): void {
+    const sprite = fruitImages[fruit.name];
+    if (sprite?.complete && sprite.naturalWidth > 0) {
+      const bounceY = Math.sin(performance.now() / config.render.fruitBouncePeriodMs + fruit.spawnIndex) *
+        config.render.fruitBounceAmplitude;
+      drawScaledSprite(
+        sprite,
+        fruit.pixel.x,
+        fruit.pixel.y + bounceY,
+        config.render.fruitSpriteSize,
+        this.getFruitScale(fruit.name),
+      );
+      return;
+    }
+
     ctx.fillStyle = fruit.color;
     ctx.beginPath();
     ctx.arc(fruit.pixel.x, fruit.pixel.y, config.render.fruitRadius, 0, Math.PI * 2);

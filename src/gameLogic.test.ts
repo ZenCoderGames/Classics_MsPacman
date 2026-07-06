@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   GRID_HEIGHT,
   GRID_WIDTH,
+  chooseDirectionOnShortestPath,
   chooseDirectionToward,
   createMazeDefinition,
+  findShortestPath,
   getGhostTarget,
   getMazeIdForLevel,
   isPassable,
+  isPlayerPassable,
   scoreForFruit,
   wrapTile,
 } from './gameLogic';
@@ -44,6 +47,20 @@ describe('fruit score table', () => {
     expect(scoreForFruit(8)).toMatchObject({ name: 'Apple', points: 1000 });
     expect(scoreForFruit(10)).toMatchObject({ name: 'Pear', points: 2000 });
     expect(scoreForFruit(11)).toMatchObject({ name: 'Banana', points: 5000 });
+  });
+});
+
+describe('ghost house passability', () => {
+  const maze = createMazeDefinition('A');
+
+  it('blocks only ghost-house interior cells for the player', () => {
+    expect(isPlayerPassable(maze, maze.ghostSpawns.blinky)).toBe(false);
+    expect(isPlayerPassable(maze, { x: 13, y: 13 })).toBe(false);
+    expect(isPlayerPassable(maze, { x: 18, y: 12 })).toBe(true);
+    expect(isPlayerPassable(maze, { x: 18, y: 13 })).toBe(true);
+    expect(isPlayerPassable(maze, { x: 19, y: 14 })).toBe(true);
+    expect(isPlayerPassable(maze, { x: 5, y: 14 })).toBe(true);
+    expect(isPlayerPassable(maze, maze.playerSpawn)).toBe(true);
   });
 });
 
@@ -104,6 +121,30 @@ describe('ghost targeting', () => {
     );
 
     expect(target).toEqual(maze.scatterTargets.sue);
+  });
+});
+
+describe('eyes pathfinding', () => {
+  it('finds an A* route from the maze back to the ghost spawn', () => {
+    const maze = createMazeDefinition('A');
+    const start = { x: 1, y: 1 };
+    const home = maze.ghostSpawns.blinky;
+    const path = findShortestPath(maze, start, home);
+
+    expect(path.length).toBeGreaterThan(1);
+    expect(path[0]).toEqual(start);
+    expect(path[path.length - 1]).toEqual(home);
+  });
+
+  it('chooses the first step along the shortest path', () => {
+    const maze = createMazeDefinition('A');
+    const start = { x: 1, y: 1 };
+    const home = maze.ghostSpawns.blinky;
+    const path = findShortestPath(maze, start, home);
+    const direction = chooseDirectionOnShortestPath(maze, start, 'left', home, true);
+
+    expect(path.length).toBeGreaterThan(1);
+    expect(direction).not.toBe('none');
   });
 });
 
