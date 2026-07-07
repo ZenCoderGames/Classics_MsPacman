@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ms. Pac-Man</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <script type="module" crossorigin src="/Classics_MsPacman/assets/index-CHr5oRLT.js"></script>
+    <link rel="stylesheet" crossorigin href="/Classics_MsPacman/assets/index-DyITAaER.css">
+  </head>
+  <body>
+    <div class="game-container">
+      <header class="game-header">
+        <div class="hud-card">
+          <span class="hud-label">Score</span>
+          <span id="score" class="hud-value">0</span>
+        </div>
+
+        <div class="title-block">
+          <h1 class="game-title">Ms. Pac-Man</h1>
+          <p class="game-subtitle">A maze chase classic</p>
+        </div>
+
+        <div class="hud-card hud-card-right">
+          <span class="hud-label">Lives</span>
+          <div id="lives" class="lives-icons" aria-label="3 lives"></div>
+        </div>
+      </header>
+
+      <main class="playfield-shell">
+        <div class="canvas-wrapper">
+          <canvas id="game-canvas" width="224" height="288"></canvas>
+        </div>
+
+        <div id="menu-overlay" class="overlay">
+          <div class="prompt-card">
+            <p class="prompt-title">READY!</p>
+            <p>Eat every dot. Dodge the ghosts. Chase the high score.</p>
+            <button id="play-btn" class="btn btn-primary" type="button">Play</button>
+          </div>
+        </div>
+
+        <div id="pause-overlay" class="overlay hidden">
+          <div class="popup">
+            <h2>Paused</h2>
+            <p>Press P or Esc to resume.</p>
+          </div>
+        </div>
+
+        <div id="game-over-overlay" class="overlay hidden">
+          <div class="popup">
+            <h2>Game Over</h2>
+            <p id="final-score">Final score: 0</p>
+            <button id="restart-btn" class="btn btn-primary" type="button">Restart</button>
+          </div>
+        </div>
+      </main>
+
+      <section class="status-row" aria-live="polite">
+        <span>Level <strong id="level">1</strong></span>
+        <span>Maze <strong id="maze">A</strong></span>
+      </section>
+
+      <button id="music-toggle" class="music-toggle" type="button">Sound: On</button>
+      <p class="controls">Move: Arrow Keys / WASD · Pause: P or Esc · Mute: M</p>
+
+      <footer class="game-footer">
+        <a href="https://soundimage.org/looping-music/" target="_blank" rel="noopener noreferrer">Music</a>
+        <span aria-hidden="true">·</span>
+        <a href="https://sounds.spriters-resource.com/arcade/pacman/asset/404131/" target="_blank" rel="noopener noreferrer">Sound FX</a>
+      </footer>
+    </div>
+
+  </body>
+</html>
