@@ -74,6 +74,11 @@
       </footer>
     </div>
 
-    <script type="module" src="src/main.ts"></script>
+    <script>
+      if (location.hostname.endsWith('github.io') && !location.pathname.includes('/docs')) {
+        location.replace(`${location.pathname.replace(/\/?$/, '/')}docs/`);
+      }
+    </script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
