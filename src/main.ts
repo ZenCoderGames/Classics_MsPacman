@@ -1394,8 +1394,19 @@ class MsPacmanGame {
   private updateHud(): void {
     scoreEl.textContent = String(this.score);
     levelEl.textContent = String(this.level);
-    livesEl.textContent = String(Math.max(0, this.lives));
     mazeEl.textContent = this.maze.id;
+
+    const livesRemaining = Math.max(0, this.lives);
+    livesEl.replaceChildren();
+    livesEl.setAttribute('aria-label', `${livesRemaining} ${livesRemaining === 1 ? 'life' : 'lives'}`);
+    for (let i = 0; i < livesRemaining; i += 1) {
+      const icon = document.createElement('img');
+      icon.src = msPacmanIdleImage.src;
+      icon.alt = '';
+      icon.className = 'life-icon';
+      icon.draggable = false;
+      livesEl.appendChild(icon);
+    }
   }
 
   private showOverlays(): void {
