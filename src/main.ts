@@ -1701,11 +1701,7 @@ class MsPacmanGame {
 
     const direction = ghost.direction === 'none' ? 'down' : ghost.direction;
 
-    if (
-      this.powerPelletFreezeTimer > 0 &&
-      ghost.mode !== 'eyes' &&
-      ghost.mode !== 'respawning'
-    ) {
+    if (this.powerPelletFreezeTimer > 0 && ghost.mode !== 'respawning') {
       const sprite = ghostSprites[ghost.id][direction];
       if (!sprite.complete || sprite.naturalWidth === 0) {
         return;
