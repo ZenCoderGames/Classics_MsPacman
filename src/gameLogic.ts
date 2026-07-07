@@ -26,6 +26,7 @@ export type MazeDefinition = {
   wallColor: string;
   passable: boolean[][];
   ghostOnly: boolean[][];
+  fruitSpawnTiles: TileCoord[];
   playerSpawn: TileCoord;
   ghostSpawns: Record<GhostId, TileCoord>;
   scatterTargets: Record<GhostId, TileCoord>;
@@ -90,7 +91,8 @@ export function getMazeIdForLevel(level: number): MazeId {
   if (level <= config.mazeRotation.BUntil) return 'B';
   if (level <= config.mazeRotation.CUntil) return 'C';
   if (level <= config.mazeRotation.DUntil) return 'D';
-  return Math.floor((level - config.mazeRotation.repeatStart) / config.mazeRotation.repeatGroupSize) % 2 === 0 ? 'C' : 'D';
+  const order: MazeId[] = ['A', 'B', 'C', 'D'];
+  return order[(level - config.mazeRotation.repeatStart) % order.length];
 }
 
 export function scoreForFruit(level: number): { name: string; points: number; color: string } {
@@ -161,6 +163,7 @@ export function createMazeDefinition(id: MazeId): MazeDefinition {
     wallColor: MAZE_COLORS[id],
     passable,
     ghostOnly: buildGhostOnlyMask(rows),
+    fruitSpawnTiles: buildFruitSpawnTiles(rows),
     playerSpawn,
     ghostSpawns,
     scatterTargets: {
@@ -187,6 +190,16 @@ function parseLevelRows(levelText: string, id: MazeId): string[] {
 
     return row.padEnd(GRID_WIDTH, ' ');
   });
+}
+
+function isInsideGhostSpawnArea(tile: TileCoord): boolean {
+  const area = config.movement.ghostSpawnArea;
+  return (
+    tile.x >= area.minX &&
+    tile.x <= area.maxX &&
+    tile.y >= area.minY &&
+    tile.y <= area.maxY
+  );
 }
 
 function buildGhostOnlyMask(rows: string[]): boolean[][] {
@@ -219,6 +232,8 @@ function buildGhostOnlyMask(rows: string[]): boolean[][] {
         continue;
       }
 
+      if (!isInsideGhostSpawnArea(neighbor)) continue;
+
       if (ghostOnly[neighbor.y][neighbor.x]) continue;
 
       const cell = rows[neighbor.y][neighbor.x];
@@ -230,6 +245,24 @@ function buildGhostOnlyMask(rows: string[]): boolean[][] {
   }
 
   return ghostOnly;
+}
+
+function buildFruitSpawnTiles(rows: string[]): TileCoord[] {
+  const { empty } = config.levelSymbols;
+  const tiles: TileCoord[] = [];
+
+  for (let y = 0; y < GRID_HEIGHT; y += 1) {
+    for (let x = 0; x < GRID_WIDTH; x += 1) {
+      if (rows[y][x] !== empty) continue;
+
+      const onGridEdge = x === 0 || x === GRID_WIDTH - 1 || y === 0 || y === GRID_HEIGHT - 1;
+      if (onGridEdge) {
+        tiles.push({ x, y });
+      }
+    }
+  }
+
+  return tiles;
 }
 
 export function isPlayerPassable(maze: MazeDefinition, tile: TileCoord): boolean {

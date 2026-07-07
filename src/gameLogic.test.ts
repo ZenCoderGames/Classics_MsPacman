@@ -17,12 +17,11 @@ import {
 describe('maze rotation', () => {
   it('uses the planned level-to-maze schedule', () => {
     expect(getMazeIdForLevel(1)).toBe('A');
-    expect(getMazeIdForLevel(2)).toBe('A');
-    expect(getMazeIdForLevel(3)).toBe('B');
-    expect(getMazeIdForLevel(6)).toBe('C');
-    expect(getMazeIdForLevel(10)).toBe('D');
-    expect(getMazeIdForLevel(14)).toBe('C');
-    expect(getMazeIdForLevel(18)).toBe('D');
+    expect(getMazeIdForLevel(2)).toBe('B');
+    expect(getMazeIdForLevel(3)).toBe('C');
+    expect(getMazeIdForLevel(4)).toBe('D');
+    expect(getMazeIdForLevel(5)).toBe('A');
+    expect(getMazeIdForLevel(8)).toBe('D');
   });
 });
 
@@ -62,13 +61,32 @@ describe('ghost house passability', () => {
     expect(isPlayerPassable(maze, { x: 5, y: 14 })).toBe(true);
     expect(isPlayerPassable(maze, maze.playerSpawn)).toBe(true);
   });
+
+  it('allows the player through corridor empty cells below the ghost house', () => {
+    expect(isPlayerPassable(maze, { x: 14, y: 17 })).toBe(true);
+    expect(isPlayerPassable(maze, { x: 11, y: 17 })).toBe(true);
+  });
+});
+
+describe('fruit spawn tiles', () => {
+  it('uses only empty cells on the grid edge', () => {
+    const maze = createMazeDefinition('A');
+
+    expect(maze.fruitSpawnTiles.length).toBeGreaterThan(0);
+    expect(maze.fruitSpawnTiles.every(({ x, y }) => x === 0 || x === GRID_WIDTH - 1 || y === 0 || y === GRID_HEIGHT - 1)).toBe(true);
+    expect(maze.fruitSpawnTiles.some(({ x, y }) => y === 17 && x <= 2)).toBe(true);
+  });
 });
 
 describe('edge wrapping', () => {
   const maze = createMazeDefinition('A');
-  const tunnelRow = 14;
+  const tunnelRows = Array.from({ length: GRID_HEIGHT }, (_, y) => y).filter(
+    (y) => maze.passable[y][0] || maze.passable[y][GRID_WIDTH - 1],
+  );
 
   it('allows moving off-grid through passable edge cells', () => {
+    expect(tunnelRows.length).toBeGreaterThan(0);
+    const tunnelRow = tunnelRows[0];
     expect(isPassable(maze, { x: -1, y: tunnelRow })).toBe(true);
     expect(isPassable(maze, { x: GRID_WIDTH, y: tunnelRow })).toBe(true);
   });
@@ -81,6 +99,7 @@ describe('edge wrapping', () => {
   });
 
   it('teleports to the opposite side of the maze', () => {
+    const tunnelRow = tunnelRows[0];
     expect(wrapTile({ x: -1, y: tunnelRow })).toEqual({ x: GRID_WIDTH - 1, y: tunnelRow });
     expect(wrapTile({ x: GRID_WIDTH, y: tunnelRow })).toEqual({ x: 0, y: tunnelRow });
   });

@@ -1,4 +1,10 @@
 import './styles.css';
+import backgroundMusicUrl from '../audio/pacmanMusic.ogg';
+import deathSfxUrl from '../audio/sfx/death_0.wav';
+import eatFruitSfxUrl from '../audio/sfx/eat_fruit.wav';
+import eatGhostSfxUrl from '../audio/sfx/eat_ghost.wav';
+import eyesSfxUrl from '../audio/sfx/eyes.wav';
+import frightSfxUrl from '../audio/sfx/fright.wav';
 import msPacmanIdleUrl from '../art/MsPacMan_01.png';
 import msPacmanChompUrl from '../art/MsPacMan_02.png';
 import blinkyDownUrl from '../art/Ghosts/Blinky/Blinky1.png';
@@ -123,6 +129,8 @@ const GHOST_KILL_SHAKE_SECONDS = config.timing.ghostKillShakeSeconds;
 const GHOST_RESPAWN_WAIT_SECONDS = config.timing.ghostRespawnWaitSeconds;
 const PLAYER_DEATH_FREEZE_SECONDS = config.timing.playerDeathFreezeSeconds;
 const PLAYER_DEATH_SHAKE_SECONDS = config.timing.playerDeathShakeSeconds;
+const POWER_PELLET_FREEZE_SECONDS = config.timing.powerPelletFreezeSeconds;
+const FRUIT_FREEZE_SECONDS = config.timing.fruitFreezeSeconds;
 const WALL_OUTLINE_COLOR = config.render.wallOutlineColor;
 const WALL_GLOW_COLOR = config.render.wallGlowColor;
 const GHOST_EXIT_TILE: TileCoord = config.movement.ghostExitTile;
@@ -376,17 +384,97 @@ function getShakeOffset(timer: number, duration: number, amplitude = config.shak
   };
 }
 
+type SfxId = 'eyes' | 'eatFruit' | 'death' | 'eatGhost' | 'fright';
+
+const SFX_URLS: Record<SfxId, string> = {
+  eyes: eyesSfxUrl,
+  eatFruit: eatFruitSfxUrl,
+  death: deathSfxUrl,
+  eatGhost: eatGhostSfxUrl,
+  fright: frightSfxUrl,
+};
+
 class ArcadeAudio {
   private audioContext: AudioContext | null = null;
   private muted = false;
   private gameplaySfxBlocked = false;
+  private readonly music = new Audio(backgroundMusicUrl);
+  private musicStarted = false;
+  private musicPaused = false;
+  private musicLoadBound = false;
+  private readonly sfxBuffers = new Map<SfxId, AudioBuffer>();
+  private sfxReady: Promise<void> | null = null;
+
+  constructor() {
+    this.music.loop = true;
+    this.music.volume = config.audio.musicVolume;
+    this.music.preload = 'auto';
+    this.bindMusicLoadRetry();
+    this.music.load();
+    void this.ensureSfxLoaded();
+  }
 
   get isMuted(): boolean {
     return this.muted;
   }
 
+  unlock(): void {
+    this.resumeContext();
+    void this.ensureSfxLoaded();
+    this.startMusic();
+  }
+
   setMuted(muted: boolean): void {
     this.muted = muted;
+    this.syncMusicPlayback();
+  }
+
+  setMusicPaused(paused: boolean): void {
+    this.musicPaused = paused;
+    this.syncMusicPlayback();
+  }
+
+  startMusic(): void {
+    if (this.muted) return;
+    this.musicStarted = true;
+    this.tryPlayMusic();
+  }
+
+  private bindMusicLoadRetry(): void {
+    if (this.musicLoadBound) return;
+    this.musicLoadBound = true;
+
+    const retry = (): void => {
+      if (this.musicStarted && !this.muted && !this.musicPaused) {
+        this.tryPlayMusic();
+      }
+    };
+
+    this.music.addEventListener('canplaythrough', retry);
+    this.music.addEventListener('loadeddata', retry);
+  }
+
+  private tryPlayMusic(): void {
+    if (this.muted || !this.musicStarted || this.musicPaused) {
+      this.music.pause();
+      return;
+    }
+
+    void this.music.play().catch(() => {
+      // Retry once media finishes loading or on the next user interaction.
+    });
+  }
+
+  private syncMusicPlayback(): void {
+    this.tryPlayMusic();
+  }
+
+  private resumeContext(): void {
+    if (this.muted) return;
+    this.audioContext ??= new AudioContext();
+    if (this.audioContext.state === 'suspended') {
+      void this.audioContext.resume();
+    }
   }
 
   setGameplaySfxBlocked(blocked: boolean): void {
@@ -400,6 +488,7 @@ class ArcadeAudio {
     gain = config.audio.defaultBeepGain,
   ): void {
     if (this.muted) return;
+    this.resumeContext();
     this.audioContext ??= new AudioContext();
     const oscillator = this.audioContext.createOscillator();
     const volume = this.audioContext.createGain();
@@ -439,7 +528,7 @@ class ArcadeAudio {
     lowPass.frequency.setValueAtTime(pellet.lowPassFrequency, now);
     lowPass.Q.setValueAtTime(0.6, now);
     volume.gain.setValueAtTime(0.0001, now);
-    volume.gain.exponentialRampToValueAtTime(pellet.gain, now + 0.012);
+    volume.gain.exponentialRampToValueAtTime(config.audio.sfxVolume.pelletEat, now + 0.012);
     volume.gain.exponentialRampToValueAtTime(0.0001, now + pellet.duration);
 
     oscillator.connect(lowPass);
@@ -450,32 +539,19 @@ class ArcadeAudio {
   }
 
   playEyesRetreat(): void {
-    if (this.muted) return;
-    this.audioContext ??= new AudioContext();
-    const eyes = config.audio.eyesRetreat;
-    const now = this.audioContext.currentTime;
-    const oscillator = this.audioContext.createOscillator();
-    const lowPass = this.audioContext.createBiquadFilter();
-    const volume = this.audioContext.createGain();
-
-    oscillator.type = eyes.type as OscillatorType;
-    oscillator.frequency.setValueAtTime(eyes.startFrequency, now);
-    oscillator.frequency.exponentialRampToValueAtTime(Math.max(eyes.endFrequency, 40), now + eyes.duration);
-    lowPass.type = 'lowpass';
-    lowPass.frequency.setValueAtTime(eyes.lowPassFrequency, now);
-    lowPass.Q.setValueAtTime(0.5, now);
-    volume.gain.setValueAtTime(0.0001, now);
-    volume.gain.exponentialRampToValueAtTime(eyes.gain, now + 0.008);
-    volume.gain.exponentialRampToValueAtTime(0.0001, now + eyes.duration);
-
-    oscillator.connect(lowPass);
-    lowPass.connect(volume);
-    volume.connect(this.audioContext.destination);
-    oscillator.start(now);
-    oscillator.stop(now + eyes.duration + 0.02);
+    this.playSample('eyes');
   }
 
-  playChomp(high: boolean): void {
+  playGhostEaten(): void {
+    if (this.gameplaySfxBlocked) return;
+    this.playSample('eatGhost');
+  }
+
+  playPlayerDeath(): void {
+    this.playSample('death');
+  }
+
+  playChomp(high: boolean, eatingPellet = false): void {
     if (this.muted || this.gameplaySfxBlocked) return;
     this.audioContext ??= new AudioContext();
     const chomp = config.audio.chomp;
@@ -484,12 +560,16 @@ class ArcadeAudio {
     const volume = this.audioContext.createGain();
     const startFrequency = high ? chomp.highFrequency : chomp.lowFrequency;
     const endFrequency = startFrequency * 0.68;
+    const volumeMultiplier = eatingPellet ? chomp.eatingVolumeMultiplier : chomp.idleVolumeMultiplier;
 
     oscillator.type = chomp.type as OscillatorType;
     oscillator.frequency.setValueAtTime(startFrequency, now);
     oscillator.frequency.exponentialRampToValueAtTime(Math.max(endFrequency, 40), now + chomp.duration);
     volume.gain.setValueAtTime(0.0001, now);
-    volume.gain.exponentialRampToValueAtTime(chomp.gain, now + 0.004);
+    volume.gain.exponentialRampToValueAtTime(
+      config.audio.sfxVolume.chomp * volumeMultiplier,
+      now + 0.004,
+    );
     volume.gain.exponentialRampToValueAtTime(0.0001, now + chomp.duration);
 
     oscillator.connect(volume);
@@ -498,63 +578,56 @@ class ArcadeAudio {
     oscillator.stop(now + chomp.duration + 0.01);
   }
 
-  playPickupJuice(kind: 'powerPellet' | 'cherry'): void {
-    if (this.muted || this.gameplaySfxBlocked) return;
-    this.audioContext ??= new AudioContext();
-    const now = this.audioContext.currentTime;
+  playPowerPellet(): void {
+    this.playSample('fright');
+  }
 
-    if (kind === 'powerPellet') {
-      this.scheduleTone(now, 110, 0.24, 'sawtooth', 0.038);
-      this.scheduleSweep(now + 0.03, 520, 920, 0.12, 'sine', 0.028);
-      this.scheduleSweep(now + 0.08, 760, 1180, 0.1, 'triangle', 0.022);
-      return;
+  playFruitEaten(): void {
+    if (this.gameplaySfxBlocked) return;
+    this.playSample('eatFruit');
+  }
+
+  private ensureSfxLoaded(): Promise<void> {
+    if (!this.sfxReady) {
+      this.sfxReady = this.loadSfxBuffers();
     }
-
-    this.scheduleTone(now, 760, 0.12, 'triangle', 0.042);
-    this.scheduleSweep(now + 0.04, 880, 1320, 0.11, 'sine', 0.03);
-    this.scheduleTone(now + 0.1, 1040, 0.08, 'square', 0.018);
+    return this.sfxReady;
   }
 
-  private scheduleTone(
-    startTime: number,
-    frequency: number,
-    duration: number,
-    type: OscillatorType,
-    gain: number,
-  ): void {
-    const oscillator = this.audioContext!.createOscillator();
-    const volume = this.audioContext!.createGain();
-    oscillator.type = type;
-    oscillator.frequency.setValueAtTime(frequency, startTime);
-    volume.gain.setValueAtTime(0.0001, startTime);
-    volume.gain.exponentialRampToValueAtTime(gain, startTime + 0.006);
-    volume.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-    oscillator.connect(volume);
-    volume.connect(this.audioContext!.destination);
-    oscillator.start(startTime);
-    oscillator.stop(startTime + duration + 0.01);
+  private async loadSfxBuffers(): Promise<void> {
+    this.resumeContext();
+    this.audioContext ??= new AudioContext();
+    const context = this.audioContext;
+
+    await Promise.all(
+      (Object.entries(SFX_URLS) as [SfxId, string][]).map(async ([id, url]) => {
+        const response = await fetch(url);
+        const data = await response.arrayBuffer();
+        this.sfxBuffers.set(id, await context.decodeAudioData(data));
+      }),
+    );
   }
 
-  private scheduleSweep(
-    startTime: number,
-    startFrequency: number,
-    endFrequency: number,
-    duration: number,
-    type: OscillatorType,
-    gain: number,
-  ): void {
-    const oscillator = this.audioContext!.createOscillator();
-    const volume = this.audioContext!.createGain();
-    oscillator.type = type;
-    oscillator.frequency.setValueAtTime(startFrequency, startTime);
-    oscillator.frequency.exponentialRampToValueAtTime(endFrequency, startTime + duration);
-    volume.gain.setValueAtTime(0.0001, startTime);
-    volume.gain.exponentialRampToValueAtTime(gain, startTime + 0.005);
-    volume.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-    oscillator.connect(volume);
-    volume.connect(this.audioContext!.destination);
-    oscillator.start(startTime);
-    oscillator.stop(startTime + duration + 0.01);
+  private playSample(id: SfxId, volumeMultiplier = 1): void {
+    if (this.muted) return;
+
+    void this.ensureSfxLoaded().then(() => {
+      if (this.muted) return;
+      if (id !== 'eyes' && id !== 'fright' && this.gameplaySfxBlocked) return;
+
+      const buffer = this.sfxBuffers.get(id);
+      if (!buffer) return;
+
+      this.resumeContext();
+      const context = this.audioContext!;
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = buffer;
+      gain.gain.value = config.audio.sfxVolume[id] * volumeMultiplier;
+      source.connect(gain);
+      gain.connect(context.destination);
+      source.start();
+    });
   }
 }
 
@@ -580,6 +653,8 @@ class MsPacmanGame {
   private stateTimer = 0;
   private ghostKillFreezeTimer = 0;
   private ghostKillShakeTimer = 0;
+  private powerPelletFreezeTimer = 0;
+  private fruitFreezeTimer = 0;
   private ghostKillEffects = new Map<GhostId, GhostKillEffect>();
   private playerDeathFlashTimer = 0;
   private playerDeathShakeTimer = 0;
@@ -588,6 +663,7 @@ class MsPacmanGame {
   private pickupJuice: PickupJuice | null = null;
   private lastChompTick = -1;
   private lastCountdownTick = 0;
+  private pelletChompBoostTimer = 0;
   private fruitSpawnedAt = new Set<number>();
   private requestedDirection: Direction = 'left';
   private lastFrame = 0;
@@ -610,22 +686,36 @@ class MsPacmanGame {
     this.extraLifeAwarded = false;
     this.resetLevel(true);
     this.showOverlays();
+    this.audio.unlock();
     this.audio.beep(config.audio.start.frequency, config.audio.start.duration, config.audio.start.type as OscillatorType);
   }
 
   togglePause(): void {
     if (this.status === 'playing') {
       this.status = 'paused';
+      this.audio.setMusicPaused(true);
     } else if (this.status === 'paused') {
       this.status = 'playing';
+      this.audio.setMusicPaused(false);
     }
     this.showOverlays();
   }
 
   private bindEvents(): void {
+    const unlockAudio = (): void => {
+      this.audio.unlock();
+    };
+
     playBtn.addEventListener('click', () => this.startNewGame());
     restartBtn.addEventListener('click', () => this.startNewGame());
-    soundBtn.addEventListener('click', () => this.toggleMute());
+    soundBtn.addEventListener('click', () => {
+      this.toggleMute();
+      unlockAudio();
+    });
+
+    for (const eventName of ['pointerdown', 'keydown'] as const) {
+      window.addEventListener(eventName, unlockAudio, { once: true });
+    }
 
     window.addEventListener('keydown', (event) => {
       const direction = keyToDirection(event.key);
@@ -717,6 +807,25 @@ class MsPacmanGame {
 
     if (this.status !== 'playing') return;
 
+    if (this.fruitFreezeTimer > 0) {
+      this.fruitFreezeTimer = Math.max(0, this.fruitFreezeTimer - delta);
+      this.updatePickupJuice(delta);
+      this.updateFloatingScores(delta);
+      this.updateHud();
+      return;
+    }
+
+    if (this.powerPelletFreezeTimer > 0) {
+      this.powerPelletFreezeTimer = Math.max(0, this.powerPelletFreezeTimer - delta);
+      if (this.powerPelletFreezeTimer === 0) {
+        this.triggerFrightened();
+      }
+      this.updatePickupJuice(delta);
+      this.updateFloatingScores(delta);
+      this.updateHud();
+      return;
+    }
+
     if (this.ghostKillFreezeTimer > 0) {
       this.ghostKillFreezeTimer = Math.max(0, this.ghostKillFreezeTimer - delta);
       this.ghostKillShakeTimer = Math.max(0, this.ghostKillShakeTimer - delta);
@@ -733,6 +842,7 @@ class MsPacmanGame {
     this.updateGhostKillEffects(delta);
     this.ghostKillShakeTimer = Math.max(0, this.ghostKillShakeTimer - delta);
     this.updateEyesRetreatSfx();
+    this.pelletChompBoostTimer = Math.max(0, this.pelletChompBoostTimer - delta);
 
     const tuning = levelTuning(this.level);
     const playerSpeedMultiplier =
@@ -788,6 +898,9 @@ class MsPacmanGame {
     this.ghostKillEffects.clear();
     this.ghostKillFreezeTimer = 0;
     this.ghostKillShakeTimer = 0;
+    this.powerPelletFreezeTimer = 0;
+    this.fruitFreezeTimer = 0;
+    this.pelletChompBoostTimer = 0;
     this.playerDeathFlashTimer = 0;
     this.playerDeathShakeTimer = 0;
     this.pelletsEaten = 0;
@@ -820,6 +933,9 @@ class MsPacmanGame {
     this.ghostKillEffects.clear();
     this.ghostKillFreezeTimer = 0;
     this.ghostKillShakeTimer = 0;
+    this.powerPelletFreezeTimer = 0;
+    this.fruitFreezeTimer = 0;
+    this.pelletChompBoostTimer = 0;
     this.playerDeathFlashTimer = 0;
     this.playerDeathShakeTimer = 0;
   }
@@ -1028,6 +1144,7 @@ class MsPacmanGame {
         fadeSpeed: config.render.scorePopupPelletFadeSpeed,
       });
       this.pelletsEaten += 1;
+      this.pelletChompBoostTimer = (config.timing.playerAnimationFrameMs / 1000) * 3;
       this.audio.playPellet(this.pelletsEaten % 2 === 0);
     }
 
@@ -1038,7 +1155,8 @@ class MsPacmanGame {
       });
       this.triggerPickupJuice('powerPellet', this.player.pixel.x, this.player.pixel.y);
       this.pelletsEaten += 1;
-      this.triggerFrightened();
+      this.audio.playPowerPellet();
+      this.powerPelletFreezeTimer = POWER_PELLET_FREEZE_SECONDS;
     }
 
     this.maybeSpawnFruit();
@@ -1118,7 +1236,6 @@ class MsPacmanGame {
       color: juice.burstColor,
       maxRadius: juice.burstMaxRadius,
     });
-    this.audio.playPickupJuice(kind);
   }
 
   private updatePickupJuice(delta: number): void {
@@ -1144,7 +1261,7 @@ class MsPacmanGame {
     if (tick === this.lastChompTick) return;
 
     this.lastChompTick = tick;
-    this.audio.playChomp(tick % 2 === 0);
+    this.audio.playChomp(tick % 2 === 0, this.pelletChompBoostTimer > 0);
   }
 
   private maybeSpawnFruit(): void {
@@ -1154,12 +1271,17 @@ class MsPacmanGame {
 
     this.fruitSpawnedAt.add(threshold);
     const fruitScore = scoreForFruit(this.level);
-    const spawn = config.fruit.spawnTile;
+    const spawnCandidates = this.maze.fruitSpawnTiles;
+    const spawn =
+      spawnCandidates.length > 0
+        ? spawnCandidates[Math.floor(Math.random() * spawnCandidates.length)]
+        : config.fruit.spawnTile;
+    const direction: Direction = spawn.x <= 1 ? 'right' : spawn.x >= GRID_WIDTH - 2 ? 'left' : 'right';
     this.fruit = {
       active: true,
       tile: spawn,
       pixel: tileCenter(spawn),
-      direction: 'right',
+      direction,
       timer: config.fruit.durationSeconds,
       spawnIndex: this.fruitSpawnedAt.size,
       ...fruitScore,
@@ -1212,12 +1334,7 @@ class MsPacmanGame {
           timer: GHOST_KILL_FREEZE_SECONDS,
           duration: GHOST_KILL_FREEZE_SECONDS,
         });
-        this.audio.beep(
-          config.audio.ghostEaten.baseFrequency + this.ghostChain * config.audio.ghostEaten.chainFrequencyStep,
-          config.audio.ghostEaten.duration,
-          config.audio.ghostEaten.type as OscillatorType,
-          config.audio.ghostEaten.gain,
-        );
+        this.audio.playGhostEaten();
         if (!this.isGhostInSpawnArea(ghost.tile)) {
           this.audio.playEyesRetreat();
         }
@@ -1235,7 +1352,9 @@ class MsPacmanGame {
       this.addScore(this.fruit.points);
       this.spawnScorePopup(this.fruit.points, { x: this.fruit.pixel.x, y: this.fruit.pixel.y });
       this.triggerPickupJuice('cherry', this.fruit.pixel.x, this.fruit.pixel.y);
+      this.audio.playFruitEaten();
       this.fruit.active = false;
+      this.fruitFreezeTimer = FRUIT_FREEZE_SECONDS;
     }
   }
 
@@ -1245,12 +1364,7 @@ class MsPacmanGame {
     this.stateTimer = PLAYER_DEATH_FREEZE_SECONDS;
     this.playerDeathFlashTimer = PLAYER_DEATH_FREEZE_SECONDS;
     this.playerDeathShakeTimer = PLAYER_DEATH_SHAKE_SECONDS;
-    this.audio.beep(
-      config.audio.playerDeath.frequency,
-      config.audio.playerDeath.duration,
-      config.audio.playerDeath.type as OscillatorType,
-      config.audio.playerDeath.gain,
-    );
+    this.audio.playPlayerDeath();
     this.updateHud();
   }
 
@@ -1575,6 +1689,26 @@ class MsPacmanGame {
     }
 
     const direction = ghost.direction === 'none' ? 'down' : ghost.direction;
+
+    if (
+      this.powerPelletFreezeTimer > 0 &&
+      ghost.mode !== 'eyes' &&
+      ghost.mode !== 'respawning'
+    ) {
+      const sprite = ghostSprites[ghost.id][direction];
+      if (!sprite.complete || sprite.naturalWidth === 0) {
+        return;
+      }
+
+      const flashOn =
+        Math.floor(performance.now() / (config.timing.flashIntervalSeconds * 1000)) % 2 === 0;
+
+      ctx.save();
+      ctx.filter = flashOn ? 'brightness(3) saturate(0)' : 'none';
+      drawScaledSprite(sprite, ghost.pixel.x, ghost.pixel.y, config.render.ghostSpriteSize, config.render.ghostScale);
+      ctx.restore();
+      return;
+    }
 
     if (ghost.mode === 'frightened') {
       const sprite = vulnerableSprites[direction];

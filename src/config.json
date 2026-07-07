@@ -20,11 +20,11 @@
     "D": "#4f79ff"
   },
   "mazeRotation": {
-    "AUntil": 2,
-    "BUntil": 5,
-    "CUntil": 9,
-    "DUntil": 13,
-    "repeatStart": 14,
+    "AUntil": 1,
+    "BUntil": 2,
+    "CUntil": 3,
+    "DUntil": 4,
+    "repeatStart": 5,
     "repeatGroupSize": 4
   },
   "defaultSpawns": {
@@ -73,6 +73,8 @@
     "flashIntervalSeconds": 0.11,
     "playerAnimationFrameMs": 120,
     "frightenedFlashMs": 140,
+    "powerPelletFreezeSeconds": 1,
+    "fruitFreezeSeconds": 0.25,
     "randomTurnFrameMs": 180,
     "levelClearFlashSeconds": 2,
     "levelClearFlashCount": 3
@@ -96,7 +98,7 @@
     "sueScatterDistanceSquared": 64
   },
   "collision": {
-    "playerGhostRadius": 12,
+    "playerGhostRadius": 15,
     "fruitRadius": 7
   },
   "scoring": {
@@ -109,7 +111,7 @@
     "spawnThresholds": [64, 176],
     "durationSeconds": 13,
     "speed": 46,
-    "spawnTile": { "x": 0, "y": 15 },
+    "spawnTile": { "x": 0, "y": 18 },
     "table": [
       { "maxLevel": 1, "name": "Cherry", "points": 100, "color": "#ffffff" },
       { "maxLevel": 2, "name": "Strawberry", "points": 200, "color": "#ff5f7d" },
@@ -194,18 +196,34 @@
     "yScale": 0.65
   },
   "audio": {
-    "defaultBeepDuration": 0.06,
+    "defaultBeepDuration": 0.25,
     "defaultBeepGain": 0.035,
+    "musicVolume": 0.25,
+    "sfxVolume": {
+      "pelletEat": 0.15,
+      "chomp": 0.1,
+      "eyes": 0.55,
+      "eatFruit": 1.0,
+      "death": 0.8,
+      "eatGhost": 0.75,
+      "fright": 0.65
+    },
     "start": { "frequency": 440, "duration": 0.12, "type": "triangle" },
     "pellet": {
       "baseFrequency": 88,
       "alternateFrequencyOffset": 10,
       "duration": 0.08,
       "type": "sine",
-      "gain": 0.008,
       "lowPassFrequency": 380
     },
-    "chomp": { "highFrequency": 440, "lowFrequency": 330, "duration": 0.045, "type": "square", "gain": 0.016 },
+    "chomp": {
+      "highFrequency": 440,
+      "lowFrequency": 330,
+      "duration": 0.045,
+      "type": "square",
+      "idleVolumeMultiplier": 0.5,
+      "eatingVolumeMultiplier": 1.4
+    },
     "eyesRetreat": {
       "startFrequency": 280,
       "endFrequency": 180,
@@ -215,9 +233,16 @@
       "lowPassFrequency": 520
     },
     "levelClear": { "frequency": 680, "duration": 0.15, "type": "triangle", "gain": 0.05 },
-    "powerPellet": { "frequency": 110, "duration": 0.22, "type": "sawtooth", "gain": 0.035 },
+    "powerPellet": { "frequency": 110, "duration": 0.07, "type": "sawtooth", "gain": 0.042 },
     "ghostEaten": { "baseFrequency": 520, "chainFrequencyStep": 80, "duration": 0.1, "type": "triangle", "gain": 0.04 },
-    "fruitEaten": { "frequency": 760, "duration": 0.13, "type": "triangle", "gain": 0.045 },
+    "fruitEaten": {
+      "notes": [
+        { "frequency": 523, "delay": 0, "duration": 0.07, "type": "triangle", "gain": 0.038 },
+        { "frequency": 659, "delay": 0.065, "duration": 0.07, "type": "triangle", "gain": 0.04 },
+        { "frequency": 784, "delay": 0.13, "duration": 0.08, "type": "sine", "gain": 0.036 },
+        { "frequency": 1047, "delay": 0.2, "duration": 0.14, "type": "triangle", "gain": 0.032 }
+      ]
+    },
     "playerDeath": { "frequency": 90, "duration": 0.45, "type": "sawtooth", "gain": 0.035 },
     "extraLife": { "frequency": 880, "duration": 0.16, "type": "triangle", "gain": 0.05 }
   }

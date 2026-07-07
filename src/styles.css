@@ -253,6 +253,28 @@ body::before {
   color: #ffffff;
 }
 
+.game-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.game-footer a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.game-footer a:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
 @media (max-width: 720px) {
   .game-header {
     grid-template-columns: 1fr 1fr;
