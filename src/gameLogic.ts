@@ -86,13 +86,15 @@ export function squaredDistance(a: TileCoord, b: TileCoord): number {
   return dx * dx + dy * dy;
 }
 
+const LEVEL_ORDER = config.levelOrder as MazeId[];
+
+export function getMaxLevel(): number {
+  return LEVEL_ORDER.length;
+}
+
 export function getMazeIdForLevel(level: number): MazeId {
-  if (level <= config.mazeRotation.AUntil) return 'A';
-  if (level <= config.mazeRotation.BUntil) return 'B';
-  if (level <= config.mazeRotation.CUntil) return 'C';
-  if (level <= config.mazeRotation.DUntil) return 'D';
-  const order: MazeId[] = ['A', 'B', 'C', 'D'];
-  return order[(level - config.mazeRotation.repeatStart) % order.length];
+  const index = Math.max(0, Math.min(level - 1, LEVEL_ORDER.length - 1));
+  return LEVEL_ORDER[index];
 }
 
 export function scoreForFruit(level: number): { name: string; points: number; color: string } {

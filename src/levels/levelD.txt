@@ -1,31 +1,31 @@
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@ffffffffffff@@ffffffffffff@
+@@@@@@@@@@@@@@ @@@@@@@@@@@@@
+@ffffffffffffffffffffffffff@
+@f@@@@f@@@@@@@f@@@@@@f@@@@f@
+@f@@@@f@@@@@@@f@@@@@@f@@@@f@
+@f@@@@f@@@@@@@f@@@@@@f@@@@f@
+@f@@@@ffffffffffffffff@@@@f@
+ ffffff@@f@@@@@@@@f@@ffffff 
+@@@@@@f@@f@@@@@@@@f@@f@@@@@@
+@sffffffffffffffffffffffffs@
 @f@@@@f@@@@@f@@f@@@@@f@@@@f@
-@s@@@@f@@@@@f@@f@@@@@f@@@@s@
 @f@@@@f@@@@@f@@f@@@@@f@@@@f@
+@f@@@@f@@fffffffffffff@@@@f@
+@f@@@@f@@f@@@@ @@@@f@f@@@@f@
+@f@@@@f@@f@@@   @@@f@f@@@@f@
+@ffffff  f@@     @@f@ffffff@
+@f@@@@f@@f@@eee e@@f@f@@@@f@
+@f@@@@f@@f@@@@@@@@@f@f@@@@f@
 @ffffffffffffffffffffffffff@
 @f@@@@f@@f@@@@@@@@f@@f@@@@f@
 @f@@@@f@@f@@@@@@@@f@@f@@@@f@
-@ffffff@@ffff@@ffff@@ffffff@
-@@@@@@f@@@@@f@@f@@@@@f@@@@@@
-@@@@@@f@@@@@f@@f@@@@@f@@@@@@
-@@@@@@f@@ffffffffff@@f@@@@@@
-@@@@@@f@@f@@@  @@@f@@f@@@@@@
-@@@@@@f@@f@      @f@@f@@@@@@
-      f   @ eee e@   f      
-@@@@@@f@@f@      @f@@f@@@@@@
-@@@@@@f@@f@@@@@@@@f@@f@@@@@@
-@@@@@@f@@ffffffffff@@f@@@@@@
-@@@@@@f@@f@@@@@@@@f@@f@@@@@@
-@@@@@@f@@f@@@@@@@@f@@f@@@@@@
-@ffffffffffff@@ffffffffffff@
+@f@@@@f@@ffffffffff@@f@@@@f@
 @f@@@@f@@@@@f@@f@@@@@f@@@@f@
 @f@@@@f@@@@@f@@f@@@@@f@@@@f@
-@sff@@fffffffp fffffff@@ffs@
-@@@f@@f@@f@@@@@@@@f@@f@@f@@@
-@@@f@@f@@f@@@@@@@@f@@f@@f@@@
-@ffffff@@ffff@@ffff@@ffffff@
-@f@@@@@@@@@@f@@f@@@@@@@@@@f@
-@f@@@@@@@@@@f@@f@@@@@@@@@@f@
+@sfffffffffffp fffffffffffs@
+@@@@@@f@@f@@@@@@@@f@@f@@@@@@
+ ffffff@@f@@@@@@@@f@@ffffff 
+@f@@@@f@@ffffffffff@@f@@@@f@
+@f@@@@f@@@@@@@f@@@@@@f@@@@f@
+@f@@@@f@@@@@@@f@@@@@@f@@@@f@
 @ffffffffffffffffffffffffff@
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@ @@@@@@@@@@@@@

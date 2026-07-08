@@ -45,6 +45,7 @@ import {
   createMazeDefinition,
   getGhostTarget,
   getMazeIdForLevel,
+  getMaxLevel,
   isPassable,
   isPlayerPassable,
   legalDirections,
@@ -59,7 +60,7 @@ import {
   type TileCoord,
 } from './gameLogic';
 
-type GameStatus = 'menu' | 'ready' | 'playing' | 'paused' | 'lifeLost' | 'levelClear' | 'gameOver';
+type GameStatus = 'menu' | 'ready' | 'playing' | 'paused' | 'lifeLost' | 'levelClear' | 'gameOver' | 'victory';
 
 type Actor = {
   tile: TileCoord;
@@ -131,8 +132,12 @@ const PLAYER_DEATH_FREEZE_SECONDS = config.timing.playerDeathFreezeSeconds;
 const PLAYER_DEATH_SHAKE_SECONDS = config.timing.playerDeathShakeSeconds;
 const POWER_PELLET_FREEZE_SECONDS = config.timing.powerPelletFreezeSeconds;
 const FRUIT_FREEZE_SECONDS = config.timing.fruitFreezeSeconds;
-const WALL_OUTLINE_COLOR = config.render.wallOutlineColor;
-const WALL_GLOW_COLOR = config.render.wallGlowColor;
+function wallGlowFromColor(hex: string, alpha = 0.7): string {
+  const r = Number.parseInt(hex.slice(1, 3), 16);
+  const g = Number.parseInt(hex.slice(3, 5), 16);
+  const b = Number.parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 const GHOST_EXIT_TILE: TileCoord = config.movement.ghostExitTile;
 const PLAYER_SPRITE_SIZE = config.render.playerSpriteSize;
 
@@ -142,11 +147,14 @@ const levelEl = requiredElement<HTMLElement>('level');
 const livesEl = requiredElement<HTMLElement>('lives');
 const mazeEl = requiredElement<HTMLElement>('maze');
 const finalScoreEl = requiredElement<HTMLElement>('final-score');
+const victoryScoreEl = requiredElement<HTMLElement>('victory-score');
 const menuOverlay = requiredElement<HTMLElement>('menu-overlay');
 const pauseOverlay = requiredElement<HTMLElement>('pause-overlay');
 const gameOverOverlay = requiredElement<HTMLElement>('game-over-overlay');
+const victoryOverlay = requiredElement<HTMLElement>('victory-overlay');
 const playBtn = requiredElement<HTMLButtonElement>('play-btn');
 const restartBtn = requiredElement<HTMLButtonElement>('restart-btn');
+const victoryRestartBtn = requiredElement<HTMLButtonElement>('victory-restart-btn');
 const soundBtn = requiredElement<HTMLButtonElement>('music-toggle');
 const canvasContext = canvas.getContext('2d');
 
@@ -708,6 +716,7 @@ class MsPacmanGame {
 
     playBtn.addEventListener('click', () => this.startNewGame());
     restartBtn.addEventListener('click', () => this.startNewGame());
+    victoryRestartBtn.addEventListener('click', () => this.startNewGame());
     soundBtn.addEventListener('click', () => {
       this.toggleMute();
       unlockAudio();
@@ -729,7 +738,7 @@ class MsPacmanGame {
 
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        if (this.status === 'menu' || this.status === 'gameOver') this.startNewGame();
+        if (this.status === 'menu' || this.status === 'gameOver' || this.status === 'victory') this.startNewGame();
       }
 
       if (event.key.toLowerCase() === 'p' || event.key === 'Escape') {
@@ -799,8 +808,12 @@ class MsPacmanGame {
     if (this.status === 'levelClear') {
       this.stateTimer -= delta;
       if (this.stateTimer <= 0) {
-        this.level += 1;
-        this.resetLevel(true);
+        if (this.level >= getMaxLevel()) {
+          this.endVictory();
+        } else {
+          this.level += 1;
+          this.resetLevel(true);
+        }
       }
       return;
     }
@@ -1377,6 +1390,21 @@ class MsPacmanGame {
     this.updateHud();
   }
 
+  private endVictory(): void {
+    this.status = 'victory';
+    this.highScore = Math.max(this.highScore, this.score);
+    localStorage.setItem('mspacman.highScore.v1', String(this.highScore));
+    victoryScoreEl.textContent = `Final score: ${this.score}`;
+    this.audio.beep(
+      config.audio.extraLife.frequency,
+      config.audio.extraLife.duration * 2,
+      config.audio.extraLife.type as OscillatorType,
+      config.audio.extraLife.gain,
+    );
+    this.showOverlays();
+    this.updateHud();
+  }
+
   private addScore(points: number): void {
     this.score += points;
     if (!this.extraLifeAwarded && this.score >= config.scoring.extraLifeScore) {
@@ -1413,6 +1441,7 @@ class MsPacmanGame {
     menuOverlay.classList.toggle('hidden', this.status !== 'menu');
     pauseOverlay.classList.toggle('hidden', this.status !== 'paused');
     gameOverOverlay.classList.toggle('hidden', this.status !== 'gameOver');
+    victoryOverlay.classList.toggle('hidden', this.status !== 'victory');
   }
 
   private render(): void {
@@ -1507,7 +1536,7 @@ class MsPacmanGame {
 
   private drawMaze(): void {
     ctx.save();
-    ctx.shadowColor = WALL_GLOW_COLOR;
+    ctx.shadowColor = wallGlowFromColor(this.maze.wallColor);
     ctx.shadowBlur = 3;
     this.drawWallOutlines();
     ctx.restore();
@@ -1516,7 +1545,7 @@ class MsPacmanGame {
   private drawWallOutlines(): void {
     const thickness = config.render.wallShellOutlineWidth;
     const radius = config.render.wallOuterCornerRadius;
-    ctx.fillStyle = WALL_OUTLINE_COLOR;
+    ctx.fillStyle = this.maze.wallColor;
 
     for (let y = 0; y < GRID_HEIGHT; y += 1) {
       for (let x = 0; x < GRID_WIDTH; x += 1) {

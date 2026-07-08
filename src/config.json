@@ -14,19 +14,12 @@
     "empty": " "
   },
   "mazeColors": {
-    "A": "#68c9ff",
-    "B": "#ff7ed1",
-    "C": "#d79b54",
-    "D": "#4f79ff"
+    "A": "#ff2a1f",
+    "B": "#2a6bff",
+    "C": "#ff9d27",
+    "D": "#c8a2ff"
   },
-  "mazeRotation": {
-    "AUntil": 1,
-    "BUntil": 2,
-    "CUntil": 3,
-    "DUntil": 4,
-    "repeatStart": 5,
-    "repeatGroupSize": 4
-  },
+  "levelOrder": ["A", "B", "C", "D"],
   "defaultSpawns": {
     "player": { "x": 13, "y": 23 },
     "ghosts": {
@@ -161,7 +154,7 @@
     "fruitSpriteSize": 64,
     "fruitScale": 2.5,
     "cherryScaleMultiplier": 0.25,
-    "strawberryScaleMultiplier": 1,
+    "strawberryScaleMultiplier": 0.25,
     "fruitBounceAmplitude": 5,
     "fruitBouncePeriodMs": 60,
     "fruitLeafColor": "#5df06e",

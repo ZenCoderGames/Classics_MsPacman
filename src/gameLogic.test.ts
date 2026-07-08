@@ -8,20 +8,20 @@ import {
   findShortestPath,
   getGhostTarget,
   getMazeIdForLevel,
+  getMaxLevel,
   isPassable,
   isPlayerPassable,
   scoreForFruit,
   wrapTile,
 } from './gameLogic';
 
-describe('maze rotation', () => {
-  it('uses the planned level-to-maze schedule', () => {
+describe('level order', () => {
+  it('uses the configured level-to-maze schedule', () => {
+    expect(getMaxLevel()).toBe(4);
     expect(getMazeIdForLevel(1)).toBe('A');
     expect(getMazeIdForLevel(2)).toBe('B');
     expect(getMazeIdForLevel(3)).toBe('C');
     expect(getMazeIdForLevel(4)).toBe('D');
-    expect(getMazeIdForLevel(5)).toBe('A');
-    expect(getMazeIdForLevel(8)).toBe('D');
   });
 });
 

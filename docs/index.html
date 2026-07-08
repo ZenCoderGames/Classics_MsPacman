@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
       rel="stylesheet"
     />
-    <script type="module" crossorigin src="/Classics_MsPacman/assets/index-CHr5oRLT.js"></script>
+    <script type="module" crossorigin src="/Classics_MsPacman/assets/index-CQbhL_a_.js"></script>
     <link rel="stylesheet" crossorigin href="/Classics_MsPacman/assets/index-DyITAaER.css">
   </head>
   <body>
@@ -59,6 +59,15 @@
             <button id="restart-btn" class="btn btn-primary" type="button">Restart</button>
           </div>
         </div>
+
+        <div id="victory-overlay" class="overlay hidden">
+          <div class="popup">
+            <h2>Victory!</h2>
+            <p>You cleared every maze!</p>
+            <p id="victory-score">Final score: 0</p>
+            <button id="victory-restart-btn" class="btn btn-primary" type="button">Play Again</button>
+          </div>
+        </div>
       </main>
 
       <section class="status-row" aria-live="polite">
@@ -75,5 +84,6 @@
         <a href="https://sounds.spriters-resource.com/arcade/pacman/asset/404131/" target="_blank" rel="noopener noreferrer">Sound FX</a>
       </footer>
     </div>
+
   </body>
 </html>
