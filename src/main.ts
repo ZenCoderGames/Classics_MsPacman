@@ -726,12 +726,20 @@ class MsPacmanGame {
       window.addEventListener(eventName, unlockAudio, { once: true });
     }
 
+    bindMobileControls((direction) => {
+      this.applyDirection(direction);
+      if (this.status === 'menu') this.startNewGame();
+    }, unlockAudio);
+
+    syncMobileControlsVisibility();
+    window.matchMedia('(max-width: 720px)').addEventListener('change', syncMobileControlsVisibility);
+
     window.addEventListener('keydown', (event) => {
       const direction = keyToDirection(event.key);
       if (direction !== 'none') {
         event.preventDefault();
-        this.requestedDirection = direction;
-        this.player.nextDirection = direction;
+        setInput(direction, true);
+        this.applyDirection(direction);
         if (this.status === 'menu') this.startNewGame();
         return;
       }
@@ -751,6 +759,26 @@ class MsPacmanGame {
         this.toggleMute();
       }
     });
+
+    window.addEventListener('keyup', (event) => {
+      const direction = keyToDirection(event.key);
+      if (direction === 'none') return;
+      event.preventDefault();
+      setInput(direction, false);
+      const active = activeDirectionFromInput();
+      if (active !== 'none') this.applyDirection(active);
+    });
+  }
+
+  private applyDirection(direction: Direction): void {
+    if (direction === 'none') return;
+    this.requestedDirection = direction;
+    this.player.nextDirection = direction;
+  }
+
+  private applyHeldInput(): void {
+    const direction = activeDirectionFromInput();
+    if (direction !== 'none') this.applyDirection(direction);
   }
 
   private toggleMute(): void {
@@ -773,6 +801,8 @@ class MsPacmanGame {
   }
 
   private update(delta: number): void {
+    this.applyHeldInput();
+
     if (this.status === 'ready') {
       this.readyTimer -= delta;
       const countdownValue = Math.max(1, Math.ceil(this.readyTimer));
@@ -1816,6 +1846,81 @@ function keyToDirection(key: string): Direction {
   if (key === 'ArrowLeft' || key.toLowerCase() === 'a') return 'left';
   if (key === 'ArrowRight' || key.toLowerCase() === 'd') return 'right';
   return 'none';
+}
+
+type DirectionInput = Exclude<Direction, 'none'>;
+
+const input: Record<DirectionInput, boolean> = {
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+};
+
+let lastInputDirection: Direction = 'none';
+
+function setInput(name: string, down: boolean): void {
+  if (!(name in input)) return;
+  const key = name as DirectionInput;
+  input[key] = down;
+  if (down) lastInputDirection = key;
+}
+
+function activeDirectionFromInput(): Direction {
+  if (lastInputDirection !== 'none' && input[lastInputDirection as DirectionInput]) {
+    return lastInputDirection;
+  }
+  for (const direction of ['up', 'left', 'down', 'right'] as DirectionInput[]) {
+    if (input[direction]) return direction;
+  }
+  return 'none';
+}
+
+function syncMobileControlsVisibility(): void {
+  const forceShow = config.debug?.showMobileControls === true;
+  const mobileViewport = window.matchMedia('(max-width: 720px)').matches;
+  document.body.classList.toggle('show-mobile-controls', forceShow || mobileViewport);
+}
+
+function bindMobileControls(onInput: (direction: Direction) => void, unlockAudio: () => void): void {
+  const controls = document.getElementById('mobile-controls');
+  if (!controls) return;
+
+  const setPressed = (btn: HTMLButtonElement, pressed: boolean): void => {
+    btn.classList.toggle('is-pressed', pressed);
+  };
+
+  const onDown = (btn: HTMLButtonElement, direction: DirectionInput): void => {
+    setInput(direction, true);
+    setPressed(btn, true);
+    onInput(direction);
+    unlockAudio();
+  };
+
+  const onUp = (btn: HTMLButtonElement, direction: DirectionInput): void => {
+    setInput(direction, false);
+    setPressed(btn, false);
+    const active = activeDirectionFromInput();
+    if (active !== 'none') onInput(active);
+  };
+
+  for (const btn of controls.querySelectorAll<HTMLButtonElement>('[data-input]')) {
+    const direction = btn.dataset.input as DirectionInput | undefined;
+    if (!direction || !(direction in input)) continue;
+
+    btn.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      btn.setPointerCapture(event.pointerId);
+      onDown(btn, direction);
+    });
+
+    const release = (): void => onUp(btn, direction);
+    btn.addEventListener('pointerup', release);
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('pointerleave', (event) => {
+      if (!btn.hasPointerCapture(event.pointerId)) release();
+    });
+  }
 }
 
 new MsPacmanGame();

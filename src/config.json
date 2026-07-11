@@ -238,5 +238,8 @@
     },
     "playerDeath": { "frequency": 90, "duration": 0.45, "type": "sawtooth", "gain": 0.035 },
     "extraLife": { "frequency": 880, "duration": 0.16, "type": "triangle", "gain": 0.05 }
+  },
+  "debug": {
+    "showMobileControls": false
   }
 }
