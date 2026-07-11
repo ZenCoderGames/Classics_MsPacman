@@ -10,8 +10,8 @@
       href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
       rel="stylesheet"
     />
-    <script type="module" crossorigin src="/Classics_MsPacman/assets/index-BpKqKWwD.js"></script>
-    <link rel="stylesheet" crossorigin href="/Classics_MsPacman/assets/index-DyITAaER.css">
+    <script type="module" crossorigin src="/Classics_MsPacman/assets/index-Dkz0qkT9.js"></script>
+    <link rel="stylesheet" crossorigin href="/Classics_MsPacman/assets/index-BhZFV7qs.css">
   </head>
   <body>
     <div class="game-container">
@@ -70,13 +70,22 @@
         </div>
       </main>
 
+      <div id="mobile-controls" class="mobile-controls" aria-label="Touch controls">
+        <div class="mobile-controls-dpad">
+          <button type="button" class="control-btn control-btn-up" data-input="up" aria-label="Up"></button>
+          <button type="button" class="control-btn control-btn-left" data-input="left" aria-label="Left"></button>
+          <button type="button" class="control-btn control-btn-right" data-input="right" aria-label="Right"></button>
+          <button type="button" class="control-btn control-btn-down" data-input="down" aria-label="Down"></button>
+        </div>
+      </div>
+
       <section class="status-row" aria-live="polite">
         <span>Level <strong id="level">1</strong></span>
         <span>Maze <strong id="maze">A</strong></span>
       </section>
 
       <button id="music-toggle" class="music-toggle" type="button">Sound: On</button>
-      <p class="controls">Move: Arrow Keys / WASD · Pause: P or Esc · Mute: M</p>
+      <p class="controls controls-hint">Move: Arrow Keys / WASD · Pause: P or Esc · Mute: M</p>
 
       <footer class="game-footer">
         <a href="https://soundimage.org/looping-music/" target="_blank" rel="noopener noreferrer">Music</a>
